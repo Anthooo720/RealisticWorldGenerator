@@ -1,4 +1,4 @@
-config-version: 12
+config-version: 13
 
 generation:
   # 0 = seed du monde Minecraft.
@@ -26,7 +26,6 @@ geology:
   enabled: true
   province-size: 5200
   contact-blend: 0.18
-  # Couches rocheuses 3D visibles dans les falaises et grottes.
   strata-scale: 0.010
   strata-thickness: 7.0
   dip-strength: 0.34
@@ -39,11 +38,9 @@ landscape:
   wetland-strength: 0.55
   plateau-strength: 0.68
   landmark-strength: 0.74
-  # Accentue la différence entre grandes régions sans ajouter du bruit bloc par bloc.
   regional-contrast: 1.18
 
 ocean:
-  # Plateau continental -> talus -> océan profond.
   shelf-width: 0.24
   shelf-depth: 18.0
   abyss-depth: 58.0
@@ -54,10 +51,12 @@ ocean:
 erosion:
   enabled: true
   tile-size: 320
-  sample-spacing: 8
-  margin-samples: 10
-  hydraulic-iterations: 42
-  thermal-iterations: 6
+  # v1.9.1 : grille légèrement plus espacée, l'interpolation conserve les formes macro.
+  sample-spacing: 10
+  margin-samples: 9
+  # Le rendu reste proche, mais les premières générations de tuiles coûtent nettement moins.
+  hydraulic-iterations: 28
+  thermal-iterations: 4
   rainfall: 0.40
   evaporation: 0.15
   capacity: 1.58
@@ -70,35 +69,37 @@ erosion:
 rivers:
   enabled: true
   tile-size: 640
-  sample-spacing: 5
-  margin-samples: 28
+  # La Catmull-Rom garde un tracé fluide avec une grille D8 moins coûteuse.
+  sample-spacing: 6
+  margin-samples: 22
   accumulation-threshold: 46.0
-  max-carve-depth: 5.4
-  max-width: 15.0
-  min-width: 1.5
-  bank-buffer: 1.55
-  max-water-depth: 2.5
+  max-carve-depth: 5.2
+  max-width: 17.0
+  min-width: 1.7
+  bank-buffer: 1.45
+  max-water-depth: 2.6
   max-wet-grade: 0.17
   waterfall-grade: 0.11
   terrace-run: 14
-  meander-scale: 0.0030
-  meander-strength: 1.05
-  floodplain-width: 9.5
-  profile-exponent: 1.85
-  bank-slope-width: 4.2
-  bank-max-cut: 2.4
-  floodplain-max-cut: 1.8
-  edge-roughness: 0.72
-  secondary-channel-frequency: 0.14
-  # Le raccord côtier est calculé une seule fois dans WatershedEngine.
+  meander-scale: 0.0027
+  meander-strength: 1.02
+  floodplain-width: 11.0
+  # Exposant du profil en U : plus bas que v1.9 pour éviter le fond trop plat.
+  profile-exponent: 1.55
+  # Largeur physique de la pente rive -> terrain naturel.
+  bank-slope-width: 7.0
+  bank-max-cut: 2.0
+  floodplain-max-cut: 1.4
+  # Moins de bruit au bord : silhouette moins dentelée et plus naturelle.
+  edge-roughness: 0.40
+  secondary-channel-frequency: 0.07
   coastal-merge-height: 14.0
   coastal-water-gradient: 0.34
-  channel-bed-flatness: 0.52
-  bank-height-jitter: 0.42
-  # Décale légèrement le chenal profond hors du centre pour former un vrai thalweg.
-  thalweg-offset: 0.18
-  # Courbure de la transition berge -> terrain naturel sur plusieurs blocs.
-  bank-transition-power: 1.35
+  channel-bed-flatness: 0.38
+  bank-height-jitter: 0.26
+  thalweg-offset: 0.14
+  # 1.0 = raccord quasi hermite sans épaule marquée.
+  bank-transition-power: 1.0
 
 lakes:
   enabled: true
@@ -110,24 +111,19 @@ lakes:
   min-rim-height: 4.5
   coast-guard-height: 12.0
   rim-samples: 28
-  # Si un chenal hydrologique passe près du pourtour, le lac aligne sa cote sur l'exutoire.
   river-connect-distance: 20.0
-  # Largeur de la transition de rive sans anneau artificiel.
   shore-blend-width: 6.0
-  # Irrégularité du fond pour casser les cuvettes concentriques.
   bed-roughness: 0.42
 
 biomes:
-  open-flat-max-slope: 0.145
-  open-flat-min-openness: 0.43
+  # Les biomes utilisés par les villages vanilla exigent maintenant une pente macro plus faible.
+  open-flat-max-slope: 0.095
+  open-flat-min-openness: 0.50
   temperate-forest-humidity: 0.70
   dark-forest-humidity: 0.86
-  open-region-bias: 0.16
-  # Zone d'écotone testée autour de la colonne avant choix du biome final.
+  open-region-bias: 0.12
   transition-radius: 14
-  # Taille des patches dans une zone de transition entre deux biomes compatibles.
   transition-patch-scale: 0.045
-  # Contrôle la présence des variantes vanilla rares (old growth, flower forest, etc.).
   rare-biome-frequency: 0.18
 
 climate:
@@ -140,7 +136,6 @@ climate:
   orographic-strength: 0.22
 
 caves:
-  # Le réseau principal reste vanilla ; RWG ajoute seulement une surcouche détaillée.
   enabled: true
   large-scale: 0.018
   detail-scale: 0.047
@@ -160,11 +155,8 @@ caves:
   aquifer-max-y: -18
   protect-ocean-carvers: true
   ocean-carver-max-land-ratio: 0.34
-  # Irrégularité du contour des cavités ajoutées par RWG.
   surface-detail-strength: 0.34
-  # Décor naturel ponctuel sur les parois/plafonds/sols de grotte.
   decoration-frequency: 0.018
-  # Dalles/escaliers rocheux très rares pour casser les surfaces trop lisses.
   step-frequency: 0.009
 
 vegetation:
@@ -179,9 +171,7 @@ vegetation:
   parametric-variation: 0.92
   open-ground-cover-density: 0.78
   open-shrub-density: 0.11
-  # Azalées volontairement rares : la flore RWG doit rester prioritaire.
   azalea-frequency: 0.006
-  # Favorise les arbres/buissons/sols dessinés par RWG face aux choix vanilla génériques.
   custom-flora-bias: 0.82
 
 natural-features:
@@ -194,13 +184,11 @@ natural-features:
 
 compatibility:
   vanilla-caves: true
-  # Doit rester true : structures et décorations vanilla conservent leur pipeline Paper.
   vanilla-decorations: true
 
 performance:
-  erosion-cache-tiles: 64
-  watershed-cache-tiles: 48
-  # Conservé pour compatibilité de configuration ; les samples de rivière sont réutilisés
-  # via WaterColumnEngine plutôt que dupliquer un second cache de colonnes.
+  # Plus de tuiles gardées pour éviter leur reconstruction pendant les déplacements rapides.
+  erosion-cache-tiles: 96
+  watershed-cache-tiles: 64
   river-cache-tiles: 48
-  column-cache-chunks: 192
+  column-cache-chunks: 224

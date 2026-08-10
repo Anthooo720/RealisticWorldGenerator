@@ -15,19 +15,20 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Plugin principal : monde naturel uniquement. Les structures restent 100% vanilla. */
 public final class RealisticWorldPlugin extends JavaPlugin {
-    private static final int CONFIG_VERSION=12;
+    private static final int CONFIG_VERSION=13;
     private volatile WorldGenConfig settings;
     private volatile ContextRegistry contexts;
     private volatile RealisticWorldApi api;
     private static volatile RealisticWorldPlugin instance;
 
     @Override public void onLoad(){ instance=this; initialize(); }
-    @Override public void onEnable(){
+
+    @Override public void onEnable() {
         initialize();
-        getLogger().info("RealisticWorldGenerator v1.9.0 actif : hydrologie continue, rivieres/lacs organiques, grottes vanilla+, biomes 26.2 et structures vanilla alignees.");
+        getLogger().info("RealisticWorldGenerator v1.9.1 actif : rivieres smooth v7, watershed optimise et structures vanilla sur terrains ouverts plus stricts.");
     }
 
-    private synchronized void initialize(){
+    private synchronized void initialize() {
         if(contexts!=null) return;
         saveDefaultConfig();
         migrateConfigIfNeeded();
@@ -36,13 +37,20 @@ public final class RealisticWorldPlugin extends JavaPlugin {
         api=new RealisticWorldApi(contexts);
     }
 
-    private void migrateConfigIfNeeded(){
+    private void migrateConfigIfNeeded() {
         FileConfiguration c=getConfig();
         int version=c.getInt("config-version",0);
         if(version>=CONFIG_VERSION) return;
 
-        // Valeurs historiques conservées afin qu'une migration depuis une très ancienne
-        // version aboutisse directement au même snapshot que le config.yml v12.
+        if(version<12) migrateLegacyToV12(c);
+        if(version<13) migrateV13(c);
+
+        c.set("config-version",CONFIG_VERSION);
+        saveConfig();
+        getLogger().info("Configuration migree vers v1.9.1 (rivieres plus douces, generation acceleree, biomes de structures plus plats).");
+    }
+
+    private static void migrateLegacyToV12(FileConfiguration c) {
         c.set("terrain.micro-relief",4.2);
         c.set("rivers.sample-spacing",5);
         c.set("rivers.margin-samples",28);
@@ -106,7 +114,6 @@ public final class RealisticWorldPlugin extends JavaPlugin {
         c.set("vegetation.open-shrub-density",0.11);
         c.set("performance.column-cache-chunks",192);
 
-        // v1.9 : paramètres nouveaux, tous explicitement configurables.
         c.set("landscape.regional-contrast",1.18);
         c.set("rivers.thalweg-offset",0.18);
         c.set("rivers.bank-transition-power",1.35);
@@ -122,16 +129,56 @@ public final class RealisticWorldPlugin extends JavaPlugin {
         c.set("vegetation.azalea-frequency",0.006);
         c.set("vegetation.custom-flora-bias",0.82);
 
-        // Nettoyage d'anciens modules de structures : le plugin principal ne les gère pas.
         c.set("settlements",null);
         c.set("roads",null);
         c.set("compatibility.vanilla-structures",null);
         c.set("performance.route-cache",null);
         c.set("performance.settlement-cache-cells",null);
+    }
 
-        c.set("config-version",CONFIG_VERSION);
-        saveConfig();
-        getLogger().info("Configuration migree vers v1.9.0 (hydrologie continue, ecotones, grottes detaillees, flore RWG prioritaire).");
+    /** Ne remplace une valeur que si le serveur utilise encore exactement le default v1.9. */
+    private static void migrateV13(FileConfiguration c) {
+        replaceInt(c,"erosion.sample-spacing",8,10);
+        replaceInt(c,"erosion.margin-samples",10,9);
+        replaceInt(c,"erosion.hydraulic-iterations",42,28);
+        replaceInt(c,"erosion.thermal-iterations",6,4);
+
+        replaceInt(c,"rivers.sample-spacing",5,6);
+        replaceInt(c,"rivers.margin-samples",28,22);
+        replaceDouble(c,"rivers.max-carve-depth",5.4,5.2);
+        replaceDouble(c,"rivers.max-width",15.0,17.0);
+        replaceDouble(c,"rivers.min-width",1.5,1.7);
+        replaceDouble(c,"rivers.bank-buffer",1.55,1.45);
+        replaceDouble(c,"rivers.max-water-depth",2.5,2.6);
+        replaceDouble(c,"rivers.meander-scale",0.0030,0.0027);
+        replaceDouble(c,"rivers.meander-strength",1.05,1.02);
+        replaceDouble(c,"rivers.floodplain-width",9.5,11.0);
+        replaceDouble(c,"rivers.profile-exponent",1.85,1.55);
+        replaceDouble(c,"rivers.bank-slope-width",4.2,7.0);
+        replaceDouble(c,"rivers.bank-max-cut",2.4,2.0);
+        replaceDouble(c,"rivers.floodplain-max-cut",1.8,1.4);
+        replaceDouble(c,"rivers.edge-roughness",0.72,0.40);
+        replaceDouble(c,"rivers.secondary-channel-frequency",0.14,0.07);
+        replaceDouble(c,"rivers.channel-bed-flatness",0.52,0.38);
+        replaceDouble(c,"rivers.bank-height-jitter",0.42,0.26);
+        replaceDouble(c,"rivers.thalweg-offset",0.18,0.14);
+        replaceDouble(c,"rivers.bank-transition-power",1.35,1.0);
+
+        replaceDouble(c,"biomes.open-flat-max-slope",0.145,0.095);
+        replaceDouble(c,"biomes.open-flat-min-openness",0.43,0.50);
+        replaceDouble(c,"biomes.open-region-bias",0.16,0.12);
+
+        replaceInt(c,"performance.erosion-cache-tiles",64,96);
+        replaceInt(c,"performance.watershed-cache-tiles",48,64);
+        replaceInt(c,"performance.column-cache-chunks",192,224);
+    }
+
+    private static void replaceInt(FileConfiguration c,String path,int oldValue,int newValue) {
+        if(!c.contains(path)||c.getInt(path)==oldValue) c.set(path,newValue);
+    }
+
+    private static void replaceDouble(FileConfiguration c,String path,double oldValue,double newValue) {
+        if(!c.contains(path)||Math.abs(c.getDouble(path)-oldValue)<1.0e-9) c.set(path,newValue);
     }
 
     public RealisticWorldApi getApi(){ initialize(); return api; }
@@ -140,17 +187,20 @@ public final class RealisticWorldPlugin extends JavaPlugin {
     @Override public ChunkGenerator getDefaultWorldGenerator(String worldName,String id){ initialize(); return new RealisticChunkGenerator(contexts); }
     @Override public BiomeProvider getDefaultBiomeProvider(String worldName,String id){ initialize(); return new RealisticBiomeProvider(contexts); }
 
-    @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args){
+    @Override public boolean onCommand(CommandSender sender,Command command,String label,String[] args) {
         if(!command.getName().equalsIgnoreCase("rwg")) return false;
-        if(!(sender instanceof Player player)) { sender.sendMessage("Commande disponible en jeu : /rwg inspect"); return true; }
-        if(args.length==0 || args[0].equalsIgnoreCase("help")) {
+        if(!(sender instanceof Player player)) {
+            sender.sendMessage("Commande disponible en jeu : /rwg inspect");
+            return true;
+        }
+        if(args.length==0||args[0].equalsIgnoreCase("help")) {
             sender.sendMessage("/rwg inspect - resume terrain, climat, eau et geologie");
             sender.sendMessage("/rwg debug <terrain|height|climate|water|geology> - diagnostic cible");
             sender.sendMessage("Les structures ne sont pas gerees par RWG : /locate structure reste vanilla.");
             return true;
         }
         if(args[0].equalsIgnoreCase("inspect")) {
-            int x=(int)Math.floor(player.getX()), z=(int)Math.floor(player.getZ());
+            int x=(int)Math.floor(player.getX()),z=(int)Math.floor(player.getZ());
             var s=api.sample(player.getWorld(),x,z);
             sender.sendMessage("RWG @ "+x+", "+z+" | Y="+Math.round(s.surfaceHeight())+" pente="+String.format("%.2f",s.slope()));
             sender.sendMessage("Paysage="+s.landscape()+" roche="+s.geology().type()+" montagne="+String.format("%.2f",s.mountainInfluence()));
@@ -158,8 +208,8 @@ public final class RealisticWorldPlugin extends JavaPlugin {
             sender.sendMessage("Riviere="+s.river().isRiver()+" debit="+String.format("%.1f",s.river().discharge())+" lac="+s.lake().isLake()+" eau="+(s.hasWater()?s.waterTop():"-"));
             return true;
         }
-        if(args[0].equalsIgnoreCase("debug") && args.length>=2) {
-            int x=(int)Math.floor(player.getX()), z=(int)Math.floor(player.getZ());
+        if(args[0].equalsIgnoreCase("debug")&&args.length>=2) {
+            int x=(int)Math.floor(player.getX()),z=(int)Math.floor(player.getZ());
             var s=api.sample(player.getWorld(),x,z);
             switch(args[1].toLowerCase()) {
                 case "terrain" -> sender.sendMessage("Terrain: Y="+Math.round(s.surfaceHeight())+" pente="+String.format("%.3f",s.slope())+" montagne="+String.format("%.2f",s.mountainInfluence())+" vallee="+String.format("%.2f",s.valleyInfluence())+" paysage="+s.landscape());
@@ -167,7 +217,7 @@ public final class RealisticWorldPlugin extends JavaPlugin {
                     var ctx=contexts.forWorld(player.getWorld());
                     double raw=ctx.terrain.baseHeightRaw(x,z);
                     var column=ctx.waterColumns.sample(x,z);
-                    double eroded=column.naturalHeight(), finalY=column.groundHeight();
+                    double eroded=column.naturalHeight(),finalY=column.groundHeight();
                     sender.sendMessage("Height: raw="+String.format("%.2f",raw)+" eroded="+String.format("%.2f",eroded)+" delta="+String.format("%+.2f",eroded-raw)+" final="+String.format("%.2f",finalY)+" waterTop="+(column.hasWater()?column.waterTop():"-"));
                 }
                 case "climate" -> sender.sendMessage("Climat: T="+String.format("%.3f",s.climate().temperature())+" H="+String.format("%.3f",s.climate().humidity())+" continentalite="+String.format("%.3f",s.climate().continentalness())+" exposition="+String.format("%.2f",s.climate().solarAspect()));
