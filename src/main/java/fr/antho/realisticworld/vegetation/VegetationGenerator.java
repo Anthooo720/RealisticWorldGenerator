@@ -5,6 +5,7 @@ import fr.antho.realisticworld.biome.BiomeEngine;
 import fr.antho.realisticworld.config.WorldGenConfig;
 import fr.antho.realisticworld.hydrology.RiverEngine;
 import fr.antho.realisticworld.hydrology.LakeEngine;
+import fr.antho.realisticworld.hydrology.WaterColumnEngine;
 import fr.antho.realisticworld.noise.SimplexNoise;
 import fr.antho.realisticworld.terrain.TerrainEngine;
 import fr.antho.realisticworld.vegetation.community.VegetationCommunitySystem;
@@ -29,6 +30,7 @@ public final class VegetationGenerator {
     private final ClimateEngine climate;
     private final RiverEngine rivers;
     private final LakeEngine lakes;
+    private final WaterColumnEngine waterColumns;
     private final ForestSuccessionSystem succession;
     private final BiomeEngine biomes;
     private final SimplexNoise groveNoise;
@@ -37,13 +39,14 @@ public final class VegetationGenerator {
 
     public VegetationGenerator(long seed, WorldGenConfig config, TerrainEngine terrain,
                                ClimateEngine climate, RiverEngine rivers, LakeEngine lakes,
-                               ForestSuccessionSystem succession, BiomeEngine biomes) {
+                               WaterColumnEngine waterColumns, ForestSuccessionSystem succession, BiomeEngine biomes) {
         this.seed = seed;
         this.config = config;
         this.terrain = terrain;
         this.climate = climate;
         this.rivers = rivers;
         this.lakes = lakes;
+        this.waterColumns = waterColumns;
         this.succession = succession;
         this.biomes = biomes;
         this.groveNoise = new SimplexNoise(seed ^ 0x51A7B03E11L);
@@ -68,9 +71,10 @@ public final class VegetationGenerator {
                 if (!s.plantable || s.slope > 0.43 || s.river.isRiver()) continue;
 
                 Biome biome = biomes.getBiome(wx, wz);
-                // Les biomes capables d'accueillir un village vanilla sont volontairement
-                // des zones ouvertes/plates. Aucun arbre custom n'y est posé avant la passe
-                // vanilla des structures, ce qui évite chemins/toits générés sur nos cimes.
+                // Les grands arbres RWG restent hors des biomes de village : ils sont posés
+                // avant la décoration vanilla, donc ils pourraient influencer les heightmaps
+                // d'une structure. Les arbres isolés de PLAINS/SAVANNA sont laissés aux
+                // features vanilla, qui s'exécutent après la pose des structures.
                 if (biomes.isVillageOpenBiome(biome)) continue;
 
                 ForestSuccessionSystem.ForestSample fs = succession.sample(wx, wz, s.y);
@@ -122,13 +126,18 @@ public final class VegetationGenerator {
                 long h = HashUtil.hash(seed, wx, wz, 0x4819A33EL);
                 Biome biome = biomes.getBiome(wx, wz);
 
-                // Dans les biomes ouverts compatibles villages : uniquement herbes/fleurs.
-                // Les blocs volumineux (rochers, fourrés, troncs) restent hors de ces zones
-                // pour laisser le pipeline vanilla poser proprement villages et chemins.
+                // Plaine/savane ouverte : vivante mais pas boisée. On autorise des touffes,
+                // fleurs et petits buissons monoblocs ; les arbres isolés restent ceux de la
+                // décoration vanilla, donc ils ne précèdent jamais les villages.
                 if (biomes.isVillageOpenBiome(biome)) {
-                    double sparseCover = config.vegetation().groundCoverDensity() * 0.42
+                    double openCover = config.vegetation().openGroundCoverDensity()
                             * groundCoverFactor(s.climate.temperature(), s.climate.humidity(), wx, wz);
-                    if (HashUtil.unitDouble(HashUtil.mix64(h ^ 0x405L)) < sparseCover) {
+                    double u=HashUtil.unitDouble(HashUtil.mix64(h ^ 0x405L));
+                    if(u < config.vegetation().openShrubDensity()*0.16) {
+                        Material shrub = biome==Biome.DESERT ? Material.DEAD_BUSH
+                                : (s.climate.humidity()>0.58 ? Material.BUSH : Material.SHORT_GRASS);
+                        setIfAirWorld(data,chunkX,chunkZ,wx,y,wz,shrub);
+                    } else if (u < openCover) {
                         Material plant = selectGroundPlant(s.climate, wx, wz, h);
                         if (plant != null) setIfAirWorld(data, chunkX, chunkZ, wx, y, wz, plant);
                     }
@@ -179,10 +188,11 @@ public final class VegetationGenerator {
     }
 
     private SurfaceSample sampleSurface(int wx, int wz) {
-        double eroded = terrain.heightWithoutRivers(wx, wz);
-        RiverEngine.RiverSample river = rivers.sample(wx, wz);
-        LakeEngine.LakeSample lake = lakes.sample(wx, wz);
-        int y = (int) Math.floor(eroded - river.carveDepth() - lake.carveDepth());
+        WaterColumnEngine.ColumnSample column = waterColumns.sample(wx, wz);
+        double eroded = column.naturalHeight();
+        RiverEngine.RiverSample river = column.river();
+        LakeEngine.LakeSample lake = column.lake();
+        int y = column.groundY();
         ClimateEngine.ClimateSample c = climate.sample(wx, wz, eroded);
         double slope = terrain.slope(wx, wz);
         boolean plantable = y > terrain.seaLevel() + 2 && c.temperature() > 0.09 && !lake.isLake() && !river.isRiver();

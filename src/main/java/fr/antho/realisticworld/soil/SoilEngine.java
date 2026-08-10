@@ -66,6 +66,16 @@ public final class SoilEngine {
         if(region==LandscapeRegionSystem.LandscapeType.CANYONLANDS && c.humidity()<0.48)
             return slope>0.38?new SoilProfile(Material.TERRACOTTA,Material.RED_SAND,Material.SANDSTONE,3,false)
                     :new SoilProfile(Material.RED_SAND,Material.TERRACOTTA,Material.SANDSTONE,4,false);
+        if(region==LandscapeRegionSystem.LandscapeType.PLATEAU) {
+            double r=HashUtil.unitDouble(HashUtil.hash(0x504C41544541554CL,x,z,(long)Math.floor(elevation)));
+            if(slope>0.34 || r<0.16) return new SoilProfile(r<0.52?geo.surfaceRock():Material.GRAVEL,geo.deepRock(),geo.deepRock(),2,false);
+            if(r<0.30) return new SoilProfile(Material.COARSE_DIRT,Material.DIRT,geo.deepRock(),3,false);
+        }
+        if(region==LandscapeRegionSystem.LandscapeType.HIGHLANDS && slope>0.18) {
+            double r=HashUtil.unitDouble(HashUtil.hash(0x484947484C414E44L,x,z,(long)Math.floor(elevation)));
+            if(r<0.07) return new SoilProfile(Material.GRAVEL,geo.surfaceRock(),geo.deepRock(),2,false);
+            if(r<0.15) return new SoilProfile(Material.COARSE_DIRT,Material.DIRT,geo.deepRock(),3,false);
+        }
         if(region==LandscapeRegionSystem.LandscapeType.WETLAND_BASIN && slope<0.22)
             return new SoilProfile(c.humidity()>0.74?Material.MOSS_BLOCK:Material.GRASS_BLOCK,Material.CLAY,Material.STONE,5,false);
 

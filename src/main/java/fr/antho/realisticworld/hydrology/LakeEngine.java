@@ -45,7 +45,7 @@ public final class LakeEngine {
         double jz=0.18+HashUtil.unitDouble(HashUtil.mix64(h^17))*0.64;
         double x=(key.x+jx)*cell, z=(key.z+jz)*cell;
         double center=terrain.heightWithoutRivers(x,z);
-        if(center<=terrain.seaLevel()+7) return LakeSite.INVALID;
+        if(center<=terrain.seaLevel()+cfg.coastGuardHeight()) return LakeSite.INVALID;
         double slope=terrain.baseSlope(x,z);
         if(slope>0.24) return LakeSite.INVALID;
 
@@ -56,18 +56,34 @@ public final class LakeEngine {
 
         // Le bord doit globalement être plus haut que le centre : sinon ce serait une mare suspendue.
         double rim=Double.POSITIVE_INFINITY;
-        for(int i=0;i<12;i++) {
-            double a=i*Math.PI*2.0/12.0;
+        int rimSamples=MathUtil.clamp(cfg.rimSamples(),16,64);
+        for(int i=0;i<rimSamples;i++) {
+            double a=i*Math.PI*2.0/rimSamples;
             double px=Math.cos(a)*rx, pz=Math.sin(a)*rz;
             double ca=Math.cos(angle), sa=Math.sin(angle);
             double wx=x+px*ca-pz*sa, wz=z+px*sa+pz*ca;
-            rim=Math.min(rim,terrain.heightWithoutRivers(wx,wz));
+            double edgeHeight=terrain.heightWithoutRivers(wx,wz);
+            if(edgeHeight<=terrain.seaLevel()+1.5) return LakeSite.INVALID;
+            rim=Math.min(rim,edgeHeight);
         }
         // On accepte une cuvette douce : le lit sera ensuite réellement sculpté, mais la
         // ligne de rive doit rester au-dessus de la future surface d'eau.
         if(rim<center-cfg.minRimHeight()) return LakeSite.INVALID;
         double water=Math.floor(Math.min(rim-1.15,center-0.45));
-        if(water<=terrain.seaLevel()+4) return LakeSite.INVALID;
+        if(water<=terrain.seaLevel()+cfg.coastGuardHeight()*0.35) return LakeSite.INVALID;
+
+        // Vérification d'intérieur : un point déjà plus bas que la surface d'eau serait un
+        // exutoire naturel. Sans ce test, une ellipse pouvait chevaucher une vallée côtière
+        // et produire localement une nappe suspendue.
+        double ca=Math.cos(angle), sa=Math.sin(angle);
+        for(int iz=-2;iz<=2;iz++) for(int ix=-2;ix<=2;ix++) {
+            if(ix==0&&iz==0) continue;
+            double fx=ix/2.5, fz=iz/2.5;
+            if(fx*fx+fz*fz>0.78) continue;
+            double px=fx*rx, pz=fz*rz;
+            double wx=x+px*ca-pz*sa, wz=z+px*sa+pz*ca;
+            if(terrain.heightWithoutRivers(wx,wz)<water-0.35) return LakeSite.INVALID;
+        }
         double depth=Math.min(cfg.maxDepth(),3.0+HashUtil.unitDouble(HashUtil.mix64(h^41))*cfg.maxDepth()*0.72);
         return new LakeSite(true,x,z,rx,rz,angle,water,depth,HashUtil.mix64(h));
     }
@@ -89,6 +105,7 @@ public final class LakeEngine {
             if(edge>1.12) return LakeSample.NONE;
             double strength=1.0-MathUtil.smootherstep(0.72,1.02,edge);
             double elevation=terrain.heightWithoutRivers(wx,wz);
+            if(elevation<=terrain.seaLevel()+1.5 && water>terrain.seaLevel()+0.5) return LakeSample.NONE;
 
             // Anneau de berge sèche. Si le relief naturel est trop bas, on le relève
             // légèrement : aucune source du lac ne peut ainsi s'échapper latéralement.

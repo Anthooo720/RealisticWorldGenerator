@@ -19,10 +19,11 @@ public final class RealisticWorldApi {
 
     public NaturalSample sample(WorldInfo world,int x,int z) {
         GenerationContext c=contexts.forWorld(world);
-        double elevation=c.terrain.heightWithoutRivers(x,z);
-        RiverEngine.RiverSample river=c.rivers.sample(x,z);
-        LakeEngine.LakeSample lake=c.lakes.sample(x,z);
-        double surface=elevation-river.carveDepth()-lake.carveDepth();
+        var column=c.waterColumns.sample(x,z);
+        double elevation=column.naturalHeight();
+        RiverEngine.RiverSample river=column.river();
+        LakeEngine.LakeSample lake=column.lake();
+        double surface=column.groundHeight();
         double slope=c.terrain.slope(x,z);
         ClimateEngine.ClimateSample climate=c.climate.sample(x,z,elevation);
         GeologyMap.GeologySample geology=c.geology.sample(x,z);

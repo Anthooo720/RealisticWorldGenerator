@@ -197,6 +197,22 @@ public final class TerrainEngine {
             height += step * cliffAmplitude;
         }
 
+        // Plateaux rares : grandes épaules hautes avec rebord lisible, sans quantifier tout
+        // le terrain. Ils introduisent une rupture d'échelle mémorable entre plaine/collines.
+        if(region.plateau()>0.04 && land>0.66 && core<0.62) {
+            double plateauTarget=cfg.seaLevel()+24.0+broad*7.0+mid*3.0+region.plateau()*22.0;
+            double lifted=Math.max(height,plateauTarget);
+            height=MathUtil.lerp(height,lifted,MathUtil.smootherstep(0.04,0.72,region.plateau())*0.72);
+        }
+
+        // Relief-signature très rare : inselberg/épaule rocheuse de grande longueur d'onde.
+        // Ce n'est pas du micro-bruit supplémentaire ; un joueur peut réellement reconnaître
+        // la région à plusieurs centaines de blocs.
+        if(region.landmark()>0.02 && land>0.72 && core<0.54) {
+            double landmarkShape=Math.pow(MathUtil.smootherstep(0.02,0.88,region.landmark()),1.35);
+            height+=landmarkShape*(9.0+16.0*geo.erosionResistance())*(0.70+region.ruggedness()*0.30);
+        }
+
         return MathUtil.lerp(oceanFloor, height, land);
     }
 

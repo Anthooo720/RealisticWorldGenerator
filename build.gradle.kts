@@ -3,11 +3,13 @@ plugins {
 }
 
 group = "fr.antho"
-version = "1.6.0"
+version = "1.8.0"
 
 repositories {
-    mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/")
+    maven {
+        name = "papermc"
+        url = uri("https://repo.papermc.io/repository/maven-public/")
+    }
 }
 
 dependencies {
@@ -19,12 +21,10 @@ java {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(21)
     options.encoding = "UTF-8"
+    options.release.set(21) // Bytecode compatible avec Java 21+, Paper 26.2 tourne sur Java 25.
 }
 
-tasks.processResources {
-    filesMatching("plugin.yml") {
-        expand("version" to project.version)
-    }
+tasks.jar {
+    archiveBaseName.set("RealisticWorldGenerator")
 }

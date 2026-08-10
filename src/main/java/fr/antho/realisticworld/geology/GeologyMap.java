@@ -54,6 +54,7 @@ public final class GeologyMap {
                 a.soilDepth * t + b.soilDepth * (1.0 - t), a.surfaceRock, a.deepRock);
     }
 
+
     /**
      * Géologie volumétrique. Les couches suivent une phase inclinée propre à la province :
      * une falaise révèle donc des bandes cohérentes au lieu d'un simple matériau de surface.

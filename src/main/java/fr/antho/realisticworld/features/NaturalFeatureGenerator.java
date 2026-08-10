@@ -6,6 +6,7 @@ import fr.antho.realisticworld.config.WorldGenConfig;
 import fr.antho.realisticworld.geology.GeologyMap;
 import fr.antho.realisticworld.hydrology.LakeEngine;
 import fr.antho.realisticworld.hydrology.RiverEngine;
+import fr.antho.realisticworld.hydrology.WaterColumnEngine;
 import fr.antho.realisticworld.terrain.TerrainEngine;
 import fr.antho.realisticworld.util.HashUtil;
 import fr.antho.realisticworld.util.MathUtil;
@@ -22,12 +23,13 @@ public final class NaturalFeatureGenerator {
     private final ClimateEngine climate;
     private final RiverEngine rivers;
     private final LakeEngine lakes;
+    private final WaterColumnEngine waterColumns;
     private final ForestSuccessionSystem forest;
     private final BiomeEngine biomes;
 
     public NaturalFeatureGenerator(long seed, WorldGenConfig config, TerrainEngine terrain,
                                    GeologyMap geology, ClimateEngine climate, RiverEngine rivers,
-                                   LakeEngine lakes, ForestSuccessionSystem forest, BiomeEngine biomes) {
+                                   LakeEngine lakes, WaterColumnEngine waterColumns, ForestSuccessionSystem forest, BiomeEngine biomes) {
         this.seed = seed;
         this.config = config;
         this.terrain = terrain;
@@ -35,6 +37,7 @@ public final class NaturalFeatureGenerator {
         this.climate = climate;
         this.rivers = rivers;
         this.lakes = lakes;
+        this.waterColumns = waterColumns;
         this.forest = forest;
         this.biomes = biomes;
     }
@@ -44,13 +47,14 @@ public final class NaturalFeatureGenerator {
         int x0 = chunkX * 16, z0 = chunkZ * 16;
         for (int z = 0; z < 16; z++) for (int x = 0; x < 16; x++) {
             int wx = x0 + x, wz = z0 + z;
-            double elevation = terrain.heightWithoutRivers(wx, wz);
+            WaterColumnEngine.ColumnSample column = waterColumns.sample(wx, wz);
+            double elevation = column.naturalHeight();
             // Les gros détails RWG ne sont jamais ajoutés dans les biomes réservés aux
             // villages vanilla. Cela laisse la place aux routes, fondations et maisons.
             if (biomes.isVillageOpenBiome(biomes.getBiome(wx, wz))) continue;
-            RiverEngine.RiverSample river = rivers.sample(wx, wz);
-            LakeEngine.LakeSample lake = lakes.sample(wx, wz);
-            int y = (int) Math.floor(elevation - river.carveDepth() - lake.carveDepth());
+            RiverEngine.RiverSample river = column.river();
+            LakeEngine.LakeSample lake = column.lake();
+            int y = column.groundY();
             if (y <= terrain.seaLevel() + 2 || lake.isLake()) continue;
             double slope = terrain.slope(wx, wz);
             long h = HashUtil.hash(seed, wx, wz, 0x4E41545552414CL);
@@ -146,10 +150,11 @@ public final class NaturalFeatureGenerator {
         int len = HashUtil.range(HashUtil.mix64(h ^ 0x99L), 3, 7);
         for (int i = 0; i < len; i++) {
             int wx = x + (alongX ? i : 0), wz = z + (alongX ? 0 : i);
-            RiverEngine.RiverSample localRiver = rivers.sample(wx, wz);
-            LakeEngine.LakeSample localLake = lakes.sample(wx, wz);
+            WaterColumnEngine.ColumnSample local = waterColumns.sample(wx, wz);
+            RiverEngine.RiverSample localRiver = local.river();
+            LakeEngine.LakeSample localLake = local.lake();
             if (localRiver.isRiver() || localLake.isLake() || localRiver.strength() > 0.12) break;
-            int gy = (int) Math.floor(terrain.heightWithoutRivers(wx, wz) - localRiver.carveDepth() - localLake.carveDepth()) + 1;
+            int gy = local.groundY() + 1;
             setIfAirWorld(data,cx,cz,wx,gy,wz,log);
             if (HashUtil.unitDouble(HashUtil.hash(seed,wx,wz,h)) < 0.32) {
                 setIfAirWorld(data,cx,cz,wx,gy+1,wz,Material.MOSS_BLOCK);

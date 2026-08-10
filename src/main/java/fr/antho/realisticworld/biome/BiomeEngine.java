@@ -75,7 +75,10 @@ public final class BiomeEngine {
 
         double slope = macroSlope(x, z, elevation);
         double openness = openness(x, z);
-        boolean openFlat = slope < 0.115 && mountain < 0.23 && openness > 0.47;
+        var biomeCfg=ctx.config.biomes();
+        double openScore=openness+biomeCfg.openRegionBias()*(1.0-MathUtil.clamp(mountain*2.2,0,1));
+        boolean openFlat = slope < biomeCfg.openFlatMaxSlope() && mountain < 0.27
+                && openScore > biomeCfg.openFlatMinOpenness();
 
         // Cherry grove : rare, tempéré, humide, en relief doux. Ce test est la seule
         // porte d'entrée vers CHERRY_GROVE ; la végétation réutilise exactement ce biome.
@@ -97,7 +100,7 @@ public final class BiomeEngine {
             if (valley > 0.42 && c.humidity() > 0.44) return Biome.MEADOW;
         }
 
-        return whittaker(c.temperature(), c.humidity(), openFlat, slope, openness, x, z);
+        return whittaker(c.temperature(), c.humidity(), openFlat, slope, openScore, x, z);
     }
 
     /** Biomes de village vanilla que RWG réserve aux zones ouvertes/plates. */
@@ -113,31 +116,39 @@ public final class BiomeEngine {
     }
 
     private Biome whittaker(double t, double h, boolean openFlat, double slope, double openness, int x, int z) {
+        var cfg=ctx.config.biomes();
+        double forestH=MathUtil.clamp(cfg.temperateForestHumidity(),0.48,0.88);
+        double darkH=Math.max(forestH+0.08,MathUtil.clamp(cfg.darkForestHumidity(),0.64,0.96));
+
         if (t < 0.17) {
-            if (openFlat && h < 0.62) return Biome.SNOWY_PLAINS;
+            if (openFlat && h < 0.68) return Biome.SNOWY_PLAINS;
             return Biome.SNOWY_TAIGA;
         }
         if (t < 0.34) {
-            if (h > 0.70) return openFlat && openness > 0.62 ? Biome.TAIGA : Biome.SNOWY_TAIGA;
-            if (h > 0.42) return Biome.FOREST;
+            if (openFlat && openness > 0.52 && h < 0.72) return Biome.PLAINS;
+            if (h > 0.76) return Biome.SNOWY_TAIGA;
+            if (h > 0.52 && openness < 0.62) return Biome.FOREST;
             return openFlat ? Biome.PLAINS : Biome.BIRCH_FOREST;
         }
         if (t < 0.62) {
-            if (h > 0.82) return Biome.DARK_FOREST;
-            if (h > 0.62) return Biome.FOREST;
-            if (h > 0.32) return openFlat ? Biome.PLAINS : (openness < 0.38 ? Biome.FOREST : Biome.BIRCH_FOREST);
-            return slope > 0.16 ? Biome.WOODED_BADLANDS : Biome.BADLANDS;
+            if (h > darkH && !openFlat) return Biome.DARK_FOREST;
+            if (h > forestH && (!openFlat || openness < 0.48)) return Biome.FOREST;
+            if (h > 0.30) {
+                if (openFlat || openness > 0.58) return Biome.PLAINS;
+                return openness < 0.34 ? Biome.FOREST : Biome.BIRCH_FOREST;
+            }
+            return slope > 0.18 ? Biome.WOODED_BADLANDS : Biome.PLAINS;
         }
         if (t < 0.82) {
-            if (h > 0.82) return Biome.JUNGLE;
-            if (h > 0.63) return Biome.SPARSE_JUNGLE;
-            if (h > 0.36) return openFlat ? Biome.SAVANNA : Biome.SPARSE_JUNGLE;
-            if (h < 0.20) return openFlat ? Biome.DESERT : Biome.BADLANDS;
-            return Biome.BADLANDS;
+            if (h > 0.86 && !openFlat) return Biome.JUNGLE;
+            if (h > 0.70 && openness < 0.56) return Biome.SPARSE_JUNGLE;
+            if (h > 0.34) return (openFlat || openness > 0.54) ? Biome.SAVANNA : Biome.SPARSE_JUNGLE;
+            if (h < 0.19) return openFlat ? Biome.DESERT : Biome.BADLANDS;
+            return openFlat ? Biome.SAVANNA : Biome.BADLANDS;
         }
         if (h < 0.25) return openFlat ? Biome.DESERT : Biome.BADLANDS;
-        if (h < 0.50) return openFlat ? Biome.SAVANNA : Biome.BADLANDS;
-        if (h > 0.84) return Biome.JUNGLE;
+        if (h < 0.56) return (openFlat || openness > 0.55) ? Biome.SAVANNA : Biome.BADLANDS;
+        if (h > 0.88 && openness < 0.48) return Biome.JUNGLE;
         return Biome.SPARSE_JUNGLE;
     }
 

@@ -12,6 +12,8 @@ public final class LandscapeRegionSystem {
     private final SimplexNoise wetness;
     private final SimplexNoise canyon;
     private final SimplexNoise escarpment;
+    private final SimplexNoise plateau;
+    private final SimplexNoise landmark;
 
     public LandscapeRegionSystem(long seed, WorldGenConfig.Landscape cfg) {
         this.cfg = cfg;
@@ -19,6 +21,8 @@ public final class LandscapeRegionSystem {
         this.wetness = new SimplexNoise(seed ^ 0x5745544C414E44L);
         this.canyon = new SimplexNoise(seed ^ 0x43414E594F4E53L);
         this.escarpment = new SimplexNoise(seed ^ 0x434C4946465301L);
+        this.plateau = new SimplexNoise(seed ^ 0x504C415445415531L);
+        this.landmark = new SimplexNoise(seed ^ 0x4C414E444D41524BL);
     }
 
     public RegionFactors factors(double x, double z) {
@@ -28,13 +32,18 @@ public final class LandscapeRegionSystem {
         double w = wetness.sample(x * s * 1.15 + 31, z * s * 1.15 - 17) * 0.5 + 0.5;
         double c = canyon.sample(x * s * 0.88 - 77, z * s * 0.88 + 44) * 0.5 + 0.5;
         double e = Math.abs(escarpment.sample(x * s * 1.55, z * s * 1.55));
+        double p = plateau.sample(x * s * 0.72 + 113, z * s * 0.72 - 89) * 0.5 + 0.5;
+        double l = landmark.sample(x * s * 0.48 - 151, z * s * 0.48 + 67) * 0.5 + 0.5;
         double cliff = (1.0 - MathUtil.smootherstep(0.025, 0.17, e)) * cfg.cliffStrength();
         double rugged = MathUtil.smootherstep(-0.18, 0.68, r);
         double rolling = 1.0 - Math.abs(r) * 0.60;
         double wetland = MathUtil.smootherstep(0.62, 0.90, w) * (1.0 - rugged * 0.55) * cfg.wetlandStrength();
         double canyonMask = MathUtil.smootherstep(0.68, 0.91, c) * (0.40 + rugged * 0.60) * cfg.canyonStrength();
+        double plateauMask = MathUtil.smootherstep(0.73,0.92,p) * (0.55+0.45*(1.0-rugged)) * cfg.plateauStrength();
+        double landmarkMask = MathUtil.smootherstep(0.84,0.965,l) * cfg.landmarkStrength();
         return new RegionFactors(MathUtil.clamp(rugged,0,1), MathUtil.clamp(rolling,0,1),
-                MathUtil.clamp(wetland,0,1), MathUtil.clamp(canyonMask,0,1), MathUtil.clamp(cliff,0,1));
+                MathUtil.clamp(wetland,0,1), MathUtil.clamp(canyonMask,0,1), MathUtil.clamp(cliff,0,1),
+                MathUtil.clamp(plateauMask,0,1),MathUtil.clamp(landmarkMask,0,1));
     }
 
     public LandscapeType classify(double x, double z, double elevation, int seaLevel,
@@ -43,6 +52,7 @@ public final class LandscapeRegionSystem {
         if (elevation < seaLevel + 8 && f.wetland > 0.34) return LandscapeType.WETLAND_BASIN;
         if (continentalness < -0.12 && f.cliff > 0.35) return LandscapeType.COASTAL_CLIFFS;
         if (f.canyon > 0.35 && elevation > seaLevel + 20) return LandscapeType.CANYONLANDS;
+        if (f.plateau > 0.42 && elevation > seaLevel + 18) return LandscapeType.PLATEAU;
         if (mountain > 0.62 && valley > 0.45) return LandscapeType.GLACIAL_VALLEY;
         if (mountain > 0.50) return LandscapeType.ALPINE_MOUNTAINS;
         if (f.ruggedness > 0.68) return LandscapeType.HIGHLANDS;
@@ -53,12 +63,12 @@ public final class LandscapeRegionSystem {
     }
 
     public enum LandscapeType {
-        ALPINE_MOUNTAINS, GLACIAL_VALLEY, HIGHLANDS, ROLLING_HILLS,
+        ALPINE_MOUNTAINS, GLACIAL_VALLEY, HIGHLANDS, ROLLING_HILLS, PLATEAU,
         TEMPERATE_LOWLAND, WETLAND_BASIN, GREAT_PLAINS, CANYONLANDS, COASTAL_CLIFFS
     }
 
     public record RegionFactors(double ruggedness, double rolling, double wetland,
-                                double canyon, double cliff) {
-        public static final RegionFactors NEUTRAL = new RegionFactors(0.45,0.55,0,0,0);
+                                double canyon, double cliff, double plateau, double landmark) {
+        public static final RegionFactors NEUTRAL = new RegionFactors(0.45,0.55,0,0,0,0,0);
     }
 }

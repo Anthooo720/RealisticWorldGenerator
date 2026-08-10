@@ -10,6 +10,7 @@ import fr.antho.realisticworld.geology.GeologyMap;
 import fr.antho.realisticworld.hydrology.LakeEngine;
 import fr.antho.realisticworld.hydrology.RiverEngine;
 import fr.antho.realisticworld.hydrology.WatershedEngine;
+import fr.antho.realisticworld.hydrology.WaterColumnEngine;
 import fr.antho.realisticworld.landscape.LandscapeRegionSystem;
 import fr.antho.realisticworld.soil.SoilEngine;
 import fr.antho.realisticworld.terrain.ErosionEngine;
@@ -33,6 +34,7 @@ public final class GenerationContext {
     public final WatershedEngine watersheds;
     public final RiverEngine rivers;
     public final LakeEngine lakes;
+    public final WaterColumnEngine waterColumns;
     public final ClimateEngine climate;
     public final SoilEngine soils;
     public final CaveEngine caves;
@@ -54,12 +56,13 @@ public final class GenerationContext {
         this.watersheds=new WatershedEngine(seed,terrain,config.rivers(),config.performance().watershedCacheTiles());
         this.rivers=new RiverEngine(seed,terrain,watersheds,config.rivers(),config.ocean(),config.performance().riverCacheTiles());
         this.lakes=new LakeEngine(seed,terrain,watersheds,config.lakes());
+        this.waterColumns=new WaterColumnEngine(terrain,rivers,lakes,config.rivers(),config.performance().columnCacheChunks());
         this.climate=new ClimateEngine(seed,config.climate(),terrain,rivers,lakes);
         this.soils=new SoilEngine(terrain,geology,landscape);
         this.caves=new CaveEngine(seed,config.caves(),terrain,geology);
         this.forestSuccession=new ForestSuccessionSystem(seed,config,terrain,climate,rivers,lakes,landscape);
         this.biomes=new BiomeEngine(this);
-        this.vegetation=new VegetationGenerator(seed,config,terrain,climate,rivers,lakes,forestSuccession,biomes);
-        this.naturalFeatures=new NaturalFeatureGenerator(seed,config,terrain,geology,climate,rivers,lakes,forestSuccession,biomes);
+        this.vegetation=new VegetationGenerator(seed,config,terrain,climate,rivers,lakes,waterColumns,forestSuccession,biomes);
+        this.naturalFeatures=new NaturalFeatureGenerator(seed,config,terrain,geology,climate,rivers,lakes,waterColumns,forestSuccession,biomes);
     }
 }
