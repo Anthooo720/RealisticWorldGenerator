@@ -54,29 +54,63 @@ public final class GeologyMap {
                 a.soilDepth * t + b.soilDepth * (1.0 - t), a.surfaceRock, a.deepRock);
     }
 
-
     /**
-     * Géologie volumétrique. Les couches suivent une phase inclinée propre à la province :
-     * une falaise révèle donc des bandes cohérentes au lieu d'un simple matériau de surface.
+     * Géologie volumétrique compatible avec les remplacements d'ores vanilla : la roche
+     * profonde privilégie STONE/GRANITE/DIORITE/ANDESITE puis DEEPSLATE, avec TUFF/CALCITE
+     * en accents géologiques plutôt que de grandes masses de sandstone/terracotta.
      */
     public Material rockAt(double x, int y, double z) {
         return rockAt(sample(x,z), x, y, z);
     }
 
     public Material rockAt(GeologySample g, double x, int y, double z) {
-        if (y < -28) return Material.DEEPSLATE;
         double dipX = Math.sin((g.type().ordinal() + 1) * 1.71) * cfg.dipStrength();
         double dipZ = Math.cos((g.type().ordinal() + 1) * 1.37) * cfg.dipStrength();
         double phase = y + x * cfg.strataScale() * dipX * 18.0 + z * cfg.strataScale() * dipZ * 18.0;
         double thickness = Math.max(3.0, cfg.strataThickness());
-        int band = Math.floorMod((int) Math.floor(phase / thickness), 6);
+        int band = Math.floorMod((int) Math.floor(phase / thickness), 8);
+
+        if (y < -28) {
+            // Tuff rare dans les provinces volcaniques, sinon deepslate : les minerais
+            // deepslate vanilla conservent ainsi leurs cibles naturelles.
+            if (g.type()==RockType.VOLCANIC && (band==1 || band==6)) return Material.TUFF;
+            return Material.DEEPSLATE;
+        }
+
         return switch (g.type()) {
-            case GRANITIC -> (band == 1 || band == 4) ? Material.ANDESITE : Material.STONE;
-            case METAMORPHIC -> (band <= 1 || band == 4) ? Material.ANDESITE : Material.STONE;
-            case LIMESTONE -> (band == 1 || band == 2 || band == 5) ? Material.CALCITE : Material.STONE;
-            case VOLCANIC -> (band <= 2 || band == 5) ? Material.TUFF : Material.STONE;
-            case SEDIMENTARY -> (band == 0 || band == 1 || band == 4) ? Material.SANDSTONE : Material.STONE;
-            case ARID_SEDIMENTARY -> (band == 1 || band == 3 || band == 5) ? Material.TERRACOTTA : Material.SANDSTONE;
+            case GRANITIC -> switch (band) {
+                case 1, 5 -> Material.GRANITE;
+                case 3 -> Material.DIORITE;
+                case 7 -> Material.ANDESITE;
+                default -> Material.STONE;
+            };
+            case METAMORPHIC -> switch (band) {
+                case 0, 4 -> Material.ANDESITE;
+                case 2 -> Material.DIORITE;
+                case 6 -> Material.GRANITE;
+                default -> Material.STONE;
+            };
+            case LIMESTONE -> switch (band) {
+                case 1, 6 -> Material.CALCITE;
+                case 3 -> Material.DIORITE;
+                default -> Material.STONE;
+            };
+            case VOLCANIC -> switch (band) {
+                case 0, 5 -> Material.TUFF;
+                case 2, 7 -> Material.ANDESITE;
+                default -> Material.STONE;
+            };
+            case SEDIMENTARY -> switch (band) {
+                case 2 -> Material.DIORITE;
+                case 6 -> Material.CALCITE;
+                default -> Material.STONE;
+            };
+            case ARID_SEDIMENTARY -> switch (band) {
+                case 1 -> Material.GRANITE;
+                case 4 -> Material.DIORITE;
+                case 7 -> Material.ANDESITE;
+                default -> Material.STONE;
+            };
         };
     }
 
@@ -94,8 +128,8 @@ public final class GeologyMap {
             case METAMORPHIC -> new GeologySample(t, 0.83, 0.86, 0.42, Material.ANDESITE, Material.STONE);
             case LIMESTONE -> new GeologySample(t, 0.61, 0.94, 0.58, Material.CALCITE, Material.STONE);
             case VOLCANIC -> new GeologySample(t, 0.78, 0.88, 0.38, Material.TUFF, Material.STONE);
-            case SEDIMENTARY -> new GeologySample(t, 0.48, 0.68, 0.72, Material.SANDSTONE, Material.STONE);
-            case ARID_SEDIMENTARY -> new GeologySample(t, 0.39, 0.74, 0.34, Material.TERRACOTTA, Material.SANDSTONE);
+            case SEDIMENTARY -> new GeologySample(t, 0.48, 0.68, 0.72, Material.STONE, Material.STONE);
+            case ARID_SEDIMENTARY -> new GeologySample(t, 0.39, 0.74, 0.34, Material.GRANITE, Material.STONE);
         };
     }
 
