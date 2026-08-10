@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "fr.antho"
-version = "1.9.0"
+version = "1.9.1"
 
 repositories {
     maven {
@@ -24,8 +24,7 @@ java {
 }
 
 // Le plugin reste émis en bytecode Java 21, mais Gradle doit accepter le classpath
-// Paper 26.2 (JVM 25) pendant la compilation. Sans cet attribut, la résolution échoue
-// avant même l'appel à javac.
+// Paper 26.2 (JVM 25) pendant la compilation.
 configurations.configureEach {
     if (isCanBeResolved) {
         attributes.attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
