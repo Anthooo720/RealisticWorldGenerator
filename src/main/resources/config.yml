@@ -1,4 +1,4 @@
-config-version: 11
+config-version: 12
 
 generation:
   # 0 = seed du monde Minecraft.
@@ -37,9 +37,10 @@ landscape:
   cliff-strength: 0.72
   canyon-strength: 0.62
   wetland-strength: 0.55
-  # Grandes formes rares qui cassent la monotonie régionale sans ajouter du bruit partout.
   plateau-strength: 0.68
   landmark-strength: 0.74
+  # Accentue la différence entre grandes régions sans ajouter du bruit bloc par bloc.
+  regional-contrast: 1.18
 
 ocean:
   # Plateau continental -> talus -> océan profond.
@@ -77,47 +78,57 @@ rivers:
   min-width: 1.5
   bank-buffer: 1.55
   max-water-depth: 2.5
-  # Les fortes pentes restent des ravins/torrents, pas des nappes d'eau en escalier.
   max-wet-grade: 0.17
   waterfall-grade: 0.11
   terrace-run: 14
   meander-scale: 0.0030
   meander-strength: 1.05
   floodplain-width: 9.5
-  # Coupe transversale v5 : lit en U + berges progressives + plaine légèrement nivelée.
   profile-exponent: 1.85
   bank-slope-width: 4.2
   bank-max-cut: 2.4
   floodplain-max-cut: 1.8
   edge-roughness: 0.72
   secondary-channel-frequency: 0.14
-  # Raccord estuarien : la surface du cours d'eau converge progressivement vers la mer.
+  # Le raccord côtier est calculé une seule fois dans WatershedEngine.
   coastal-merge-height: 14.0
   coastal-water-gradient: 0.34
-  # Fond plus large et moins en V ; irrégularité lente de la hauteur des berges.
   channel-bed-flatness: 0.52
   bank-height-jitter: 0.42
+  # Décale légèrement le chenal profond hors du centre pour former un vrai thalweg.
+  thalweg-offset: 0.18
+  # Courbure de la transition berge -> terrain naturel sur plusieurs blocs.
+  bank-transition-power: 1.35
 
 lakes:
   enabled: true
-  # Les lacs sont des bassins continus indépendants des frontières de tuiles.
   cell-size: 1800
   frequency: 0.20
   min-radius: 26.0
   max-radius: 105.0
   max-depth: 9.0
   min-rim-height: 4.5
-  # Empêche un lac local de recouper/recouvrir une côte océanique.
   coast-guard-height: 12.0
   rim-samples: 28
+  # Si un chenal hydrologique passe près du pourtour, le lac aligne sa cote sur l'exutoire.
+  river-connect-distance: 20.0
+  # Largeur de la transition de rive sans anneau artificiel.
+  shore-blend-width: 6.0
+  # Irrégularité du fond pour casser les cuvettes concentriques.
+  bed-roughness: 0.42
 
 biomes:
-  # Plus de régions ouvertes sans transformer le monde en plaines vides.
   open-flat-max-slope: 0.145
   open-flat-min-openness: 0.43
   temperate-forest-humidity: 0.70
   dark-forest-humidity: 0.86
   open-region-bias: 0.16
+  # Zone d'écotone testée autour de la colonne avant choix du biome final.
+  transition-radius: 14
+  # Taille des patches dans une zone de transition entre deux biomes compatibles.
+  transition-patch-scale: 0.045
+  # Contrôle la présence des variantes vanilla rares (old growth, flower forest, etc.).
+  rare-biome-frequency: 0.18
 
 climate:
   latitude-period: 24000.0
@@ -129,9 +140,8 @@ climate:
   orographic-strength: 0.22
 
 caves:
-  # Grottes v3 vanilla+ : Minecraft génère le réseau principal, RWG ajoute seulement de rares connecteurs/salles moyennes.
+  # Le réseau principal reste vanilla ; RWG ajoute seulement une surcouche détaillée.
   enabled: true
-  # Paramètres historiques conservés pour compatibilité de configuration.
   large-scale: 0.018
   detail-scale: 0.047
   threshold: 0.72
@@ -144,14 +154,18 @@ caves:
   chamber-spacing: 152
   chamber-frequency: 0.068
   max-chamber-radius: 10.0
-  # Surcouche seulement : les carvers vanilla restent le réseau principal.
   overlay-strength: 0.76
   vertical-link-frequency: 0.038
   aquifer-frequency: 0.045
   aquifer-max-y: -18
-  # Les carvers vanilla sous un océan custom peuvent ouvrir des poches d'air géantes.
   protect-ocean-carvers: true
   ocean-carver-max-land-ratio: 0.34
+  # Irrégularité du contour des cavités ajoutées par RWG.
+  surface-detail-strength: 0.34
+  # Décor naturel ponctuel sur les parois/plafonds/sols de grotte.
+  decoration-frequency: 0.018
+  # Dalles/escaliers rocheux très rares pour casser les surfaces trop lisses.
+  step-frequency: 0.009
 
 vegetation:
   enabled: true
@@ -162,12 +176,13 @@ vegetation:
   grove-scale: 0.00120
   succession-scale: 0.00048
   deadwood-density: 0.042
-  # Part des arbres utilisant des formes paramétriques uniques.
   parametric-variation: 0.92
-  # Les biomes ouverts restent vivants via herbes/fleurs/buissons légers ;
-  # les rares arbres sont laissés aux décorations vanilla après les structures.
   open-ground-cover-density: 0.78
   open-shrub-density: 0.11
+  # Azalées volontairement rares : la flore RWG doit rester prioritaire.
+  azalea-frequency: 0.006
+  # Favorise les arbres/buissons/sols dessinés par RWG face aux choix vanilla génériques.
+  custom-flora-bias: 0.82
 
 natural-features:
   enabled: true
@@ -178,15 +193,14 @@ natural-features:
   bank-gravel-density: 0.24
 
 compatibility:
-  # Base vanilla activée : RWG se limite à une surcouche légère.
   vanilla-caves: true
-  # Paper place les blocs des structures vanilla pendant sa passe de décoration.
-  # Cette option doit rester true pour que /locate structure corresponde à une structure visible.
+  # Doit rester true : structures et décorations vanilla conservent leur pipeline Paper.
   vanilla-decorations: true
 
 performance:
   erosion-cache-tiles: 64
   watershed-cache-tiles: 48
+  # Conservé pour compatibilité de configuration ; les samples de rivière sont réutilisés
+  # via WaterColumnEngine plutôt que dupliquer un second cache de colonnes.
   river-cache-tiles: 48
-  # Cache commun terrain+rivière+lac utilisé par noise/surface/caves/getBaseHeight.
   column-cache-chunks: 192
