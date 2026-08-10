@@ -1,0 +1,15 @@
+name: RealisticWorldGenerator
+version: '1.6.0'
+main: fr.antho.realisticworld.RealisticWorldPlugin
+description: "Générateur naturel réaliste : rivières v4, grottes vanilla+, végétation biome-aware et structures vanilla préservées."
+author: Antho
+api-version: '26.2'
+load: STARTUP
+commands:
+  rwg:
+    description: "Diagnostic du monde naturel RealisticWorldGenerator"
+    usage: "/rwg inspect"
+    permission: realisticworld.command
+permissions:
+  realisticworld.command:
+    default: true
