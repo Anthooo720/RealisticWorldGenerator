@@ -31,12 +31,8 @@ public final class BiomeEngine {
         this.caveNoise = new SimplexNoise(seed ^ 0x4341564542494F4DL);
     }
 
-    /** Biome de surface utilisé par végétation/structures et appels historiques. */
-    public Biome getBiome(int x, int z) {
-        return blendedSurfaceBiome(x,z);
-    }
+    public Biome getBiome(int x, int z) { return blendedSurfaceBiome(x,z); }
 
-    /** Biome 3D utilisé par le BiomeProvider Paper 26.2. */
     public Biome getBiome(int x,int y,int z) {
         double surface=ctx.terrain.baseHeightRaw(x,z);
         if(y<surface-14) {
@@ -50,8 +46,6 @@ public final class BiomeEngine {
         Biome primary=classifySurface(x,z);
         int radius=MathUtil.clamp(ctx.config.biomes().transitionRadius(),0,32);
         if(radius<=0 || !blendable(primary)) return primary;
-
-        // Un seul échantillon voisin : bien moins coûteux qu'un lissage 3x3 lors des /locate.
         double dir=transitionDirection.sample(x*0.0011,z*0.0011);
         int dx,dz;
         if(dir<-0.50){dx=-radius;dz=0;}
@@ -60,11 +54,8 @@ public final class BiomeEngine {
         else {dx=0;dz=radius;}
         Biome neighbour=classifySurface(x+dx,z+dz);
         if(primary==neighbour || !compatibleTransition(primary,neighbour)) return primary;
-
         double scale=MathUtil.clamp(ctx.config.biomes().transitionPatchScale(),0.012,0.12);
         double patch=transitionNoise.sample(x*scale,z*scale);
-        // Petits patches cohérents de quelques blocs : l'écotone n'est ni une ligne nette
-        // ni un damier bloc par bloc.
         return patch>0.18?neighbour:primary;
     }
 
@@ -88,7 +79,6 @@ public final class BiomeEngine {
         double mountain = ctx.terrain.mountainInfluence(x, z);
         double valley = ctx.terrain.valleyInfluence(x, z);
 
-        // Îles champignons extrêmement rares, isolées dans la bande océanique/littorale.
         if(altitude>-2 && altitude<12 && c.continentalness()<0.02 && c.continentalness()>-0.24
                 && rare>0.965) return Biome.MUSHROOM_FIELDS;
 
@@ -126,9 +116,7 @@ public final class BiomeEngine {
         double cherry = cherryNoise.sample(x * 0.00058 + 17.0, z * 0.00058 - 43.0) * 0.5 + 0.5;
         if (altitude > 24 && altitude < 76 && slope < 0.24 && mountain > 0.08 && mountain < 0.55
                 && c.temperature() > 0.40 && c.temperature() < 0.64
-                && c.humidity() > 0.54 && c.humidity() < 0.86 && cherry > 0.79) {
-            return Biome.CHERRY_GROVE;
-        }
+                && c.humidity() > 0.54 && c.humidity() < 0.86 && cherry > 0.79) return Biome.CHERRY_GROVE;
 
         if(c.temperature()<0.16 && openFlat && c.humidity()<0.56 && rare>0.86) return Biome.ICE_SPIKES;
 
@@ -167,12 +155,14 @@ public final class BiomeEngine {
         double rare=MathUtil.clamp(ctx.config.biomes().rareBiomeFrequency(),0.02,0.48);
 
         if(y<-30 && ctx.terrain.mountainInfluence(x,z)>0.32 && n>0.90-rare*0.18) return Biome.DEEP_DARK;
-        if(geo.type()==GeologyMap.RockType.VOLCANIC && y<42 && y>-54 && n>0.80-rare*0.16)
-            return Biome.SULFUR_CAVES;
-        if(geo.type()==GeologyMap.RockType.LIMESTONE && y<54 && n>0.66-rare*0.12)
-            return Biome.DRIPSTONE_CAVES;
-        if(c.humidity()>0.66 && c.temperature()>0.24 && y<48 && y>-32 && n>0.72-rare*0.10)
-            return Biome.LUSH_CAVES;
+        if(geo.type()==GeologyMap.RockType.VOLCANIC && y<42 && y>-54 && n>0.80-rare*0.16) return Biome.SULFUR_CAVES;
+        if(geo.type()==GeologyMap.RockType.LIMESTONE && y<54 && n>0.66-rare*0.12) return Biome.DRIPSTONE_CAVES;
+
+        // Lush caves restent présentes, mais leur fréquence est volontairement basse : les
+        // décorations vanilla de ce biome sont une source indirecte importante d'azalées.
+        double azalea=MathUtil.clamp(ctx.config.vegetation().azaleaFrequency(),0.0,0.05);
+        double lushGate=MathUtil.clamp(0.92-rare*0.04-azalea*1.5,0.80,0.95);
+        if(c.humidity()>0.70 && c.temperature()>0.24 && y<48 && y>-32 && n>lushGate) return Biome.LUSH_CAVES;
         return null;
     }
 
@@ -180,7 +170,6 @@ public final class BiomeEngine {
         double frequency=MathUtil.clamp(ctx.config.biomes().rareBiomeFrequency(),0.02,0.48);
         double gate=1.0-frequency;
         if(rare<gate) return base;
-
         if(base==Biome.PLAINS) return c.humidity()>0.62?Biome.SUNFLOWER_PLAINS:Biome.PLAINS;
         if(base==Biome.FOREST) {
             if(c.humidity()>0.84 && rare>0.94) return Biome.PALE_GARDEN;
@@ -215,7 +204,6 @@ public final class BiomeEngine {
         var cfg=ctx.config.biomes();
         double forestH=MathUtil.clamp(cfg.temperateForestHumidity(),0.48,0.88);
         double darkH=Math.max(forestH+0.08,MathUtil.clamp(cfg.darkForestHumidity(),0.64,0.96));
-
         if (t < 0.17) {
             if (openFlat && h < 0.68) return Biome.SNOWY_PLAINS;
             return Biome.SNOWY_TAIGA;
@@ -253,9 +241,7 @@ public final class BiomeEngine {
                 &&b!=Biome.STONY_SHORE&&!isOcean(b)&&b!=Biome.MUSHROOM_FIELDS;
     }
 
-    private static boolean compatibleTransition(Biome a,Biome b) {
-        return family(a)==family(b);
-    }
+    private static boolean compatibleTransition(Biome a,Biome b) { return family(a)==family(b); }
 
     private static int family(Biome b) {
         if(isOcean(b)) return 0;
@@ -267,7 +253,7 @@ public final class BiomeEngine {
                 ||b==Biome.WINDSWEPT_HILLS||b==Biome.WINDSWEPT_GRAVELLY_HILLS) return 5;
         if(b==Biome.SWAMP||b==Biome.MANGROVE_SWAMP) return 6;
         if(b==Biome.PLAINS||b==Biome.SUNFLOWER_PLAINS||b==Biome.MEADOW) return 7;
-        return 8; // forêts tempérées/boreales compatibles entre elles.
+        return 8;
     }
 
     private static boolean isOcean(Biome b) {
