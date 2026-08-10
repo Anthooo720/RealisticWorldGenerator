@@ -3,34 +3,29 @@ package fr.antho.realisticworld.hydrology;
 import fr.antho.realisticworld.config.WorldGenConfig;
 import fr.antho.realisticworld.terrain.TerrainEngine;
 import fr.antho.realisticworld.util.BoundedCache;
-import fr.antho.realisticworld.util.MathUtil;
 
 /**
  * Arbitre unique de la colonne terrain/eau.
  *
- * <p>Avant la v1.8, generateNoise(), generateSurface(), getBaseHeight() et les caves
- * recalculaient chacun natural/river/lake et combinaient les niveaux d'eau de façon
- * légèrement différente. Une rivière côtière ou un lac proche de la mer pouvait donc
- * fournir un waterSurface supérieur au niveau marin tandis que le terrain voisin était
- * déjà océanique. Ici une colonne possède une seule vérité : sol final + niveau d'eau.
- * Le résultat est caché par colonne afin de ne pas multiplier les samples hydrologiques lors des appels dispersés de worldgen.</p>
+ * <p>Les moteurs hydrologiques calculent leur géométrie et leur cote d'eau en amont.
+ * WaterColumnEngine ne recalcule pas ces cotes à partir de la hauteur naturelle locale :
+ * il choisit le corps d'eau propriétaire de la colonne, lui associe son propre lit et
+ * expose exactement la même colonne à noise/surface/caves/getBaseHeight.</p>
  */
 public final class WaterColumnEngine {
     private final TerrainEngine terrain;
     private final RiverEngine rivers;
     private final LakeEngine lakes;
-    private final WorldGenConfig.Rivers riverCfg;
     private final BoundedCache<Long, ColumnSample> cache;
 
     public WaterColumnEngine(TerrainEngine terrain, RiverEngine rivers, LakeEngine lakes,
-                             WorldGenConfig.Rivers riverCfg, int cacheChunks) {
+                             WorldGenConfig.Rivers ignoredRiverCfg, int cacheChunks) {
         this.terrain = terrain;
         this.rivers = rivers;
         this.lakes = lakes;
-        this.riverCfg = riverCfg;
         // Cache par colonne plutôt que tuile pré-calculée : /locate et getBaseHeight
         // interrogent souvent un seul point dans beaucoup de chunks éloignés. Préparer 256
-        // colonnes à chaque miss rendait ce chemin inutilement coûteux.
+        // colonnes à chaque miss rendrait ce chemin inutilement coûteux.
         this.cache = new BoundedCache<>(Math.max(4096, cacheChunks * 256));
     }
 
@@ -40,69 +35,67 @@ public final class WaterColumnEngine {
     }
 
     private ColumnSample buildColumn(int wx, int wz) {
-            double natural = terrain.heightWithoutRivers(wx, wz);
-            RiverEngine.RiverSample river = rivers.sample(wx, wz);
-            LakeEngine.LakeSample lake = lakes.sample(wx, wz);
+        double natural = terrain.heightWithoutRivers(wx, wz);
+        RiverEngine.RiverSample river = rivers.sample(wx, wz);
+        LakeEngine.LakeSample lake = lakes.sample(wx, wz);
 
-            // Les systèmes restent séparés mais une colonne ne doit jamais additionner deux
-            // excavations fortes à une confluence lac/rivière. On garde l'intervention qui
-            // domine localement ; une berge de lac (carve négatif = léger remblai) reste valide.
-            double riverCarve = river.carveDepth();
-            double lakeCarve = lake.carveDepth();
-            double carve;
-            if (river.strength() > 0.04 && lake.strength() > 0.04) {
-                carve = Math.abs(riverCarve) >= Math.abs(lakeCarve) ? riverCarve : lakeCarve;
-            } else {
-                carve = riverCarve + lakeCarve;
-            }
-            double ground = natural - carve;
+        int sea = terrain.seaLevel();
+        boolean oceanColumn = natural < sea;
+        ColumnOwner owner = resolveOwner(oceanColumn, river, lake);
 
-            int sea = terrain.seaLevel();
-            boolean oceanColumn = natural < sea;
-            double riverWater = river.isRiver() ? river.waterSurface() : Double.NEGATIVE_INFINITY;
-            double lakeWater = lake.isLake() ? lake.waterSurface() : Double.NEGATIVE_INFINITY;
+        // Le propriétaire de l'eau possède aussi le lit correspondant. À une confluence,
+        // on ne peut donc plus prendre le carve rivière puis le niveau du lac (ou l'inverse).
+        // Hors eau, les faibles corrections sèches de berge/rive restent additives et lisses.
+        double carve = switch (owner) {
+            case OCEAN -> river.isRiver() ? river.carveDepth() : 0.0;
+            case LAKE -> lake.carveDepth();
+            case RIVER -> river.carveDepth();
+            case NONE -> river.carveDepth() + lake.carveDepth();
+        };
+        double ground = natural - carve;
 
-            // Estuaire : un cours d'eau qui atteint la bande littorale converge vers le niveau
-            // marin bien AVANT la dernière colonne. Cela évite les terrasses d'eau suspendues
-            // de 3-8 blocs au-dessus de l'océan observées en v1.7.
-            if (Double.isFinite(riverWater)) {
-                double coastalCeiling = coastalWaterCeiling(natural);
-                if (river.estuary() || natural <= sea + riverCfg.coastalMergeHeight()) {
-                    riverWater = Math.min(riverWater, coastalCeiling);
-                }
-                if (oceanColumn) riverWater = sea;
-                riverWater = Math.min(riverWater, Math.floor(natural - 0.35));
-            }
+        // Aucun plafond côtier ni clamp par natural n'est appliqué ici. RiverEngine/LakeEngine
+        // sont responsables de leur cote hydraulique ; la modifier bloc par bloc recréerait
+        // précisément les anneaux de lac et les marches transversales observés en v1.8.
+        double water = switch (owner) {
+            case OCEAN -> sea;
+            case LAKE -> lake.waterSurface();
+            case RIVER -> river.waterSurface();
+            case NONE -> Double.NEGATIVE_INFINITY;
+        };
 
-            // Un lac côtier qui recoupe une colonne océanique n'a pas le droit d'imposer son
-            // niveau local à la mer. LakeEngine possède aussi son propre garde de bassin.
-            if (Double.isFinite(lakeWater) && (oceanColumn || natural <= sea + 1.0)) {
-                lakeWater = Double.NEGATIVE_INFINITY;
-            }
+        int groundY = (int) Math.floor(ground);
+        int waterTop = Double.isFinite(water)
+                ? (int) Math.floor(water + 1.0e-6)
+                : Integer.MIN_VALUE;
 
-            double water = Double.NEGATIVE_INFINITY;
-            if (oceanColumn) water = sea;
-            if (Double.isFinite(riverWater)) water = Math.max(water, riverWater);
-            if (Double.isFinite(lakeWater)) water = Math.max(water, lakeWater);
+        // Garde géométrique uniquement : on ne déplace jamais la surface hydraulique.
+        // Si le moteur propriétaire n'a pas réellement creusé sous sa cote d'eau, la
+        // colonne reste sèche plutôt que de créer une nappe flottante.
+        if (waterTop <= groundY) waterTop = Integer.MIN_VALUE;
 
-            // Garde final : hors océan, aucune nappe ne peut flotter au-dessus du terrain
-            // naturel qui la contient. Le lit peut être plus bas grâce au carve, pas l'eau.
-            if (!oceanColumn && Double.isFinite(water)) {
-                water = Math.min(water, Math.floor(natural - 0.35));
-            }
-
-            int groundY = (int) Math.floor(ground);
-            int waterTop = Double.isFinite(water) ? (int) Math.floor(water + 1.0e-6) : Integer.MIN_VALUE;
-            if (waterTop <= groundY) waterTop = Integer.MIN_VALUE;
-
-            return new ColumnSample(natural, ground, groundY, waterTop, oceanColumn, river, lake);
+        return new ColumnSample(natural, ground, groundY, waterTop, oceanColumn, river, lake);
     }
 
-    private double coastalWaterCeiling(double natural) {
-        int sea = terrain.seaLevel();
-        double above = Math.max(0.0, natural - (sea + 1.5));
-        double rise = above * MathUtil.clamp(riverCfg.coastalWaterGradient(), 0.05, 0.80);
-        return sea + Math.min(rise, Math.max(1.0, riverCfg.coastalMergeHeight() * 0.42));
+    private static ColumnOwner resolveOwner(boolean oceanColumn, RiverEngine.RiverSample river,
+                                             LakeEngine.LakeSample lake) {
+        if (oceanColumn) return ColumnOwner.OCEAN;
+
+        boolean lakeWater = lake.isLake() && Double.isFinite(lake.waterSurface());
+        boolean riverWater = river.isRiver() && Double.isFinite(river.waterSurface());
+
+        // Dans l'emprise réelle d'un lac, la cote unique du bassin domine. Une rivière qui
+        // traverse/rejoint ce bassin ne peut pas imposer localement une autre nappe.
+        if (lakeWater) return ColumnOwner.LAKE;
+        if (riverWater) return ColumnOwner.RIVER;
+        return ColumnOwner.NONE;
+    }
+
+    private enum ColumnOwner {
+        NONE,
+        OCEAN,
+        RIVER,
+        LAKE
     }
 
     /**
@@ -128,5 +121,4 @@ public final class WaterColumnEngine {
         public boolean hasWater() { return waterTop != Integer.MIN_VALUE; }
         public int worldSurfaceY() { return hasWater() ? Math.max(groundY, waterTop) : groundY; }
     }
-
 }
