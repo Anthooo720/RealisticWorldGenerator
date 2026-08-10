@@ -1,0 +1,56 @@
+name: Sync RWG v1.8.0 source
+
+on:
+  push:
+    paths:
+      - '.github/workflows/rwg-source-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild and verify source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .rwg-upload/part-*.b64 | base64 -d > /tmp/rwg180.tar.xz
+          echo "9cbb02b007a87539a93adfd2f74a1528cd59d842861c7d447001ae61483dd043  /tmp/rwg180.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/rwg180
+          tar -xJf /tmp/rwg180.tar.xz -C /tmp/rwg180
+          ROOT="/tmp/rwg180/RealisticWorldGenerator-source-1.8.0"
+          test -f "$ROOT/build.gradle.kts"
+          test -f "$ROOT/settings.gradle.kts"
+          test -f "$ROOT/src/main/resources/plugin.yml"
+          test -f "$ROOT/src/main/java/fr/antho/realisticworld/hydrology/WaterColumnEngine.java"
+
+      - name: Replace repository project with v1.8.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="/tmp/rwg180/RealisticWorldGenerator-source-1.8.0"
+          rm -rf src
+          rm -f README.md build.gradle.kts settings.gradle.kts
+          cp -a "$ROOT/README.md" .
+          cp -a "$ROOT/build.gradle.kts" .
+          cp -a "$ROOT/settings.gradle.kts" .
+          cp -a "$ROOT/src" .
+          rm -rf .rwg-upload
+          rm -f .github/workflows/rwg-source-sync.yml
+
+      - name: Commit RealisticWorldGenerator v1.8.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Update source to RealisticWorldGenerator v1.8.0"
+          git push origin HEAD:main
