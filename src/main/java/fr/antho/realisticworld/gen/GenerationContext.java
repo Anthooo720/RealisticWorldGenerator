@@ -57,10 +57,10 @@ public final class GenerationContext {
         this.rivers=new RiverEngine(seed,terrain,watersheds,config.rivers(),config.ocean(),config.performance().riverCacheTiles());
         this.lakes=new LakeEngine(seed,terrain,watersheds,config.lakes());
         this.waterColumns=new WaterColumnEngine(terrain,rivers,lakes,config.rivers(),config.performance().columnCacheChunks());
-        this.climate=new ClimateEngine(seed,config.climate(),terrain,rivers,lakes);
+        this.climate=new ClimateEngine(seed,config.climate(),terrain,waterColumns);
         this.soils=new SoilEngine(terrain,geology,landscape);
         this.caves=new CaveEngine(seed,config.caves(),terrain,geology);
-        this.forestSuccession=new ForestSuccessionSystem(seed,config,terrain,climate,rivers,lakes,landscape);
+        this.forestSuccession=new ForestSuccessionSystem(seed,config,terrain,climate,waterColumns,landscape);
         this.biomes=new BiomeEngine(this);
         this.vegetation=new VegetationGenerator(seed,config,terrain,climate,rivers,lakes,waterColumns,forestSuccession,biomes);
         this.naturalFeatures=new NaturalFeatureGenerator(seed,config,terrain,geology,climate,rivers,lakes,waterColumns,forestSuccession,biomes);
