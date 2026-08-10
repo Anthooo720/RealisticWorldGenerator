@@ -25,22 +25,26 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
     private static final BlockFace[] HORIZONTAL={BlockFace.NORTH,BlockFace.EAST,BlockFace.SOUTH,BlockFace.WEST};
     private final ContextRegistry contexts;
     private final RealisticBiomeProvider biomeProvider;
-    public RealisticChunkGenerator(ContextRegistry contexts){ this.contexts=contexts; this.biomeProvider=new RealisticBiomeProvider(contexts); }
 
-    @Override public void generateNoise(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData data) {
+    public RealisticChunkGenerator(ContextRegistry contexts) {
+        this.contexts=contexts;
+        this.biomeProvider=new RealisticBiomeProvider(contexts);
+    }
+
+    @Override public void generateNoise(WorldInfo worldInfo,Random random,int chunkX,int chunkZ,ChunkData data) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         int minY=data.getMinHeight(),maxY=data.getMaxHeight();
-        for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
-            for(int x=0;x<16;x++) { int wx=chunkX*16+x;
+        for(int z=0;z<16;z++) {
+            int wz=chunkZ*16+z;
+            for(int x=0;x<16;x++) {
+                int wx=chunkX*16+x;
                 WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(wx,wz);
                 int surface=MathUtil.clamp(column.groundY(),minY+1,maxY-2);
                 var geo=ctx.geology.sample(wx,wz);
-
                 for(int y=minY;y<=surface;y++) {
                     Material material=y<=minY+1?Material.BEDROCK:ctx.geology.rockAt(geo,wx,y,wz);
                     data.setBlock(x,y,z,material);
                 }
-
                 if(column.hasWater()) {
                     int waterTop=Math.min(maxY-1,column.waterTop());
                     for(int y=surface+1;y<=waterTop;y++) data.setBlock(x,y,z,Material.WATER);
@@ -49,24 +53,28 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
         }
     }
 
-    @Override public void generateSurface(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData data) {
+    @Override public void generateSurface(WorldInfo worldInfo,Random random,int chunkX,int chunkZ,ChunkData data) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         int minY=data.getMinHeight(),maxY=data.getMaxHeight();
-        for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
-            for(int x=0;x<16;x++) { int wx=chunkX*16+x;
+        for(int z=0;z<16;z++) {
+            int wz=chunkZ*16+z;
+            for(int x=0;x<16;x++) {
+                int wx=chunkX*16+x;
                 WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(wx,wz);
                 double natural=column.naturalHeight();
                 RiverEngine.RiverSample river=column.river();
                 LakeEngine.LakeSample lake=column.lake();
                 int surface=MathUtil.clamp(column.groundY(),minY+1,maxY-2);
                 ClimateEngine.ClimateSample climate=ctx.climate.sample(wx,wz,natural);
-                double slope=ctx.terrain.slope(wx,wz);
-                SoilEngine.SoilProfile p=ctx.soils.sample(wx,wz,natural,slope,climate,river,lake);
-                data.setBlock(x,surface,z,p.top());
-                for(int depth=1;depth<=p.depth()&&surface-depth>minY;depth++) {
-                    data.setBlock(x,surface-depth,z,depth>=Math.max(3,p.depth()-1)?p.deep():p.sub());
+                double slope=ctx.waterColumns.slope(wx,wz);
+                SoilEngine.SoilProfile profile=ctx.soils.sample(wx,wz,natural,slope,climate,river,lake);
+                data.setBlock(x,surface,z,profile.top());
+                for(int depth=1;depth<=profile.depth()&&surface-depth>minY;depth++) {
+                    data.setBlock(x,surface-depth,z,
+                            depth>=Math.max(3,profile.depth()-1)?profile.deep():profile.sub());
                 }
-                if(p.snowCap()&&surface+1<maxY&&!column.hasWater()) data.setBlock(x,surface+1,z,Material.SNOW);
+                if(profile.snowCap()&&surface+1<maxY&&!column.hasWater())
+                    data.setBlock(x,surface+1,z,Material.SNOW);
             }
         }
         ctx.vegetation.render(data,chunkX,chunkZ);
@@ -74,13 +82,15 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
     }
 
     /** Carvers vanilla d'abord, puis petite surcouche RWG et détail des surfaces exposées. */
-    @Override public void generateCaves(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData data) {
+    @Override public void generateCaves(WorldInfo worldInfo,Random random,int chunkX,int chunkZ,ChunkData data) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         if(!ctx.caves.enabled()) return;
         int minY=Math.max(data.getMinHeight()+3,ctx.config.caves().minY());
         int maxY=Math.min(data.getMaxHeight()-2,ctx.config.caves().maxY());
-        for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
-            for(int x=0;x<16;x++) { int wx=chunkX*16+x;
+        for(int z=0;z<16;z++) {
+            int wz=chunkZ*16+z;
+            for(int x=0;x<16;x++) {
+                int wx=chunkX*16+x;
                 double surface=ctx.waterColumns.sample(wx,wz).groundHeight();
                 var geo=ctx.geology.sample(wx,wz);
                 int top=Math.min(maxY,(int)Math.floor(surface)-ctx.config.caves().surfaceBuffer());
@@ -88,7 +98,7 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                     Material current=data.getType(x,y,z);
                     if(current.isAir()||current==Material.WATER||current==Material.BEDROCK) continue;
                     if(ctx.caves.shouldCarve(geo,wx,y,wz,surface)) {
-                        data.setBlock(x,y,z,ctx.caves.isDeepAquifer(wx,y,wz,surface) ? Material.WATER : Material.AIR);
+                        data.setBlock(x,y,z,ctx.caves.isDeepAquifer(wx,y,wz,surface)?Material.WATER:Material.AIR);
                     }
                 }
             }
@@ -96,9 +106,12 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
         detailCaveSurfaces(ctx,data,chunkX,chunkZ,minY,maxY);
     }
 
-    private static void detailCaveSurfaces(GenerationContext ctx,ChunkData data,int chunkX,int chunkZ,int minY,int maxY) {
-        for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
-            for(int x=0;x<16;x++) { int wx=chunkX*16+x;
+    private static void detailCaveSurfaces(GenerationContext ctx,ChunkData data,int chunkX,int chunkZ,
+                                           int minY,int maxY) {
+        for(int z=0;z<16;z++) {
+            int wz=chunkZ*16+z;
+            for(int x=0;x<16;x++) {
+                int wx=chunkX*16+x;
                 double surface=ctx.waterColumns.sample(wx,wz).groundHeight();
                 int top=Math.min(maxY,(int)Math.floor(surface)-ctx.config.caves().surfaceBuffer());
                 var geo=ctx.geology.sample(wx,wz);
@@ -127,7 +140,8 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                                 case VOLCANIC -> Material.TUFF;
                                 default -> y<0?Material.MOSS_CARPET:Material.GRAVEL;
                             };
-                            if(decoration==Material.TUFF||decoration==Material.GRAVEL) data.setBlock(x,y,z,decoration);
+                            if(decoration==Material.TUFF||decoration==Material.GRAVEL)
+                                data.setBlock(x,y,z,decoration);
                             else data.setBlock(x,y+1,z,decoration);
                         }
                     } else if(detail.naturalDecoration()&&airBelow&&data.getType(x,y-1,z).isAir()) {
@@ -138,9 +152,10 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
         }
     }
 
-    private static boolean isCaveRock(Material m) {
-        return m==Material.STONE||m==Material.GRANITE||m==Material.DIORITE||m==Material.ANDESITE
-                ||m==Material.TUFF||m==Material.DEEPSLATE||m==Material.CALCITE;
+    private static boolean isCaveRock(Material material) {
+        return material==Material.STONE||material==Material.GRANITE||material==Material.DIORITE
+                ||material==Material.ANDESITE||material==Material.TUFF
+                ||material==Material.DEEPSLATE||material==Material.CALCITE;
     }
 
     private static BlockData slabData(Material rock,boolean floor) {
@@ -173,24 +188,26 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
     }
 
     /**
-     * Heightmap de la passe noise. Paper 26.2 attend le Y du plus haut bloc correspondant,
-     * pas le premier bloc d'air : aucun +1 n'est appliqué ici.
+     * Heightmap exacte de la passe noise. Elle reste identique au relief réellement écrit
+     * dans generateNoise : Paper peut donc adapter ses structures vanilla sans divergence
+     * entre la hauteur annoncée et le terrain présent.
      */
-    @Override public int getBaseHeight(WorldInfo worldInfo, Random random, int x, int z, HeightMap heightMap) {
+    @Override public int getBaseHeight(WorldInfo worldInfo,Random random,int x,int z,HeightMap heightMap) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(x,z);
         int groundTop=MathUtil.clamp(column.groundY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
         int worldTop=MathUtil.clamp(column.worldSurfaceY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
         return switch(heightMap) {
-            case OCEAN_FLOOR, OCEAN_FLOOR_WG -> groundTop;
-            case WORLD_SURFACE, WORLD_SURFACE_WG, MOTION_BLOCKING, MOTION_BLOCKING_NO_LEAVES -> worldTop;
+            case OCEAN_FLOOR,OCEAN_FLOOR_WG -> groundTop;
+            case WORLD_SURFACE,WORLD_SURFACE_WG,MOTION_BLOCKING,MOTION_BLOCKING_NO_LEAVES -> worldTop;
         };
     }
 
     @Override public BiomeProvider getDefaultBiomeProvider(WorldInfo worldInfo){ return biomeProvider; }
     @Override public boolean shouldGenerateNoise(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){ return false; }
     @Override public boolean shouldGenerateSurface(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){ return false; }
-    @Override public boolean shouldGenerateCaves(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){
+
+    @Override public boolean shouldGenerateCaves(WorldInfo worldInfo,Random random,int chunkX,int chunkZ) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         if(!ctx.config.compatibility().vanillaCaves()) return false;
         if(ctx.config.caves().protectOceanCarvers()) {
@@ -199,10 +216,13 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
         }
         return true;
     }
-    @Override public boolean shouldGenerateDecorations(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){
+
+    @Override public boolean shouldGenerateDecorations(WorldInfo worldInfo,Random random,int chunkX,int chunkZ) {
         return contexts.forWorld(worldInfo).config.compatibility().vanillaDecorations();
     }
+
     @Override public boolean shouldGenerateMobs(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){ return true; }
-    /** Structures : toujours vanilla dans le plugin principal. */
+
+    /** Structures : toujours 100% vanilla dans le plugin principal. */
     @Override public boolean shouldGenerateStructures(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){ return true; }
 }
