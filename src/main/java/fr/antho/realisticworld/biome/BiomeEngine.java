@@ -2,25 +2,22 @@ package fr.antho.realisticworld.biome;
 
 import fr.antho.realisticworld.climate.ClimateEngine;
 import fr.antho.realisticworld.gen.GenerationContext;
+import fr.antho.realisticworld.geology.GeologyMap;
 import fr.antho.realisticworld.landscape.LandscapeRegionSystem;
 import fr.antho.realisticworld.noise.SimplexNoise;
 import fr.antho.realisticworld.util.MathUtil;
 import org.bukkit.block.Biome;
 
-/**
- * Classification macro des biomes utilisée à la fois par le BiomeProvider et la végétation.
- *
- * Deux règles de gameplay sont volontairement intégrées ici :
- *  - les biomes pouvant accueillir un village vanilla sont réservés aux terrains macro
- *    suffisamment ouverts et plats ;
- *  - CHERRY_GROVE est une région rare et explicite. Aucun cerisier RWG n'est autorisé
- *    en dehors de ce biome.
- */
+/** Classification 3D des biomes vanilla avec écotones et variantes régionales RWG. */
 public final class BiomeEngine {
     private final GenerationContext ctx;
     private final SimplexNoise opennessNoise;
     private final SimplexNoise cherryNoise;
     private final SimplexNoise woodlandNoise;
+    private final SimplexNoise rareNoise;
+    private final SimplexNoise transitionNoise;
+    private final SimplexNoise transitionDirection;
+    private final SimplexNoise caveNoise;
 
     public BiomeEngine(GenerationContext ctx) {
         this.ctx = ctx;
@@ -28,12 +25,54 @@ public final class BiomeEngine {
         this.opennessNoise = new SimplexNoise(seed ^ 0x42494F4D454F504EL);
         this.cherryNoise = new SimplexNoise(seed ^ 0x4348455252594752L);
         this.woodlandNoise = new SimplexNoise(seed ^ 0x574F4F444C414E44L);
+        this.rareNoise = new SimplexNoise(seed ^ 0x5241524542494F4DL);
+        this.transitionNoise = new SimplexNoise(seed ^ 0x45434F544F4E4531L);
+        this.transitionDirection = new SimplexNoise(seed ^ 0x45434F4449524543L);
+        this.caveNoise = new SimplexNoise(seed ^ 0x4341564542494F4DL);
     }
 
+    /** Biome de surface utilisé par végétation/structures et appels historiques. */
     public Biome getBiome(int x, int z) {
+        return blendedSurfaceBiome(x,z);
+    }
+
+    /** Biome 3D utilisé par le BiomeProvider Paper 26.2. */
+    public Biome getBiome(int x,int y,int z) {
+        double surface=ctx.terrain.baseHeightRaw(x,z);
+        if(y<surface-14) {
+            Biome underground=undergroundBiome(x,y,z,surface);
+            if(underground!=null) return underground;
+        }
+        return blendedSurfaceBiome(x,z);
+    }
+
+    private Biome blendedSurfaceBiome(int x,int z) {
+        Biome primary=classifySurface(x,z);
+        int radius=MathUtil.clamp(ctx.config.biomes().transitionRadius(),0,32);
+        if(radius<=0 || !blendable(primary)) return primary;
+
+        // Un seul échantillon voisin : bien moins coûteux qu'un lissage 3x3 lors des /locate.
+        double dir=transitionDirection.sample(x*0.0011,z*0.0011);
+        int dx,dz;
+        if(dir<-0.50){dx=-radius;dz=0;}
+        else if(dir<0.0){dx=0;dz=-radius;}
+        else if(dir<0.50){dx=radius;dz=0;}
+        else {dx=0;dz=radius;}
+        Biome neighbour=classifySurface(x+dx,z+dz);
+        if(primary==neighbour || !compatibleTransition(primary,neighbour)) return primary;
+
+        double scale=MathUtil.clamp(ctx.config.biomes().transitionPatchScale(),0.012,0.12);
+        double patch=transitionNoise.sample(x*scale,z*scale);
+        // Petits patches cohérents de quelques blocs : l'écotone n'est ni une ligne nette
+        // ni un damier bloc par bloc.
+        return patch>0.18?neighbour:primary;
+    }
+
+    private Biome classifySurface(int x, int z) {
         double elevation = ctx.terrain.baseHeightRaw(x, z);
         ClimateEngine.ClimateSample c = ctx.climate.sampleFast(x, z, elevation);
         int sea = ctx.terrain.seaLevel();
+        double rare=rareField(x,z);
 
         if (elevation < sea - 3) {
             boolean deep = elevation < sea - 24;
@@ -49,7 +88,10 @@ public final class BiomeEngine {
         double mountain = ctx.terrain.mountainInfluence(x, z);
         double valley = ctx.terrain.valleyInfluence(x, z);
 
-        // Approximation légère des grands couloirs fluviaux pour garder /locate biome rapide.
+        // Îles champignons extrêmement rares, isolées dans la bande océanique/littorale.
+        if(altitude>-2 && altitude<12 && c.continentalness()<0.02 && c.continentalness()>-0.24
+                && rare>0.965) return Biome.MUSHROOM_FIELDS;
+
         if (altitude > 2 && altitude < 42 && valley > 0.84 && mountain < 0.56) {
             return c.temperature() < 0.24 ? Biome.FROZEN_RIVER : Biome.RIVER;
         }
@@ -68,7 +110,8 @@ public final class BiomeEngine {
             return Biome.STONY_PEAKS;
         }
         if (altitude > 62) {
-            if (c.temperature() < 0.30) return Biome.SNOWY_SLOPES;
+            if (c.temperature() < 0.27 && mountain<0.70) return Biome.GROVE;
+            if (c.temperature() < 0.31) return Biome.SNOWY_SLOPES;
             if (c.humidity() > 0.44 && mountain < 0.72) return Biome.MEADOW;
             return Biome.STONY_PEAKS;
         }
@@ -80,8 +123,6 @@ public final class BiomeEngine {
         boolean openFlat = slope < biomeCfg.openFlatMaxSlope() && mountain < 0.27
                 && openScore > biomeCfg.openFlatMinOpenness();
 
-        // Cherry grove : rare, tempéré, humide, en relief doux. Ce test est la seule
-        // porte d'entrée vers CHERRY_GROVE ; la végétation réutilise exactement ce biome.
         double cherry = cherryNoise.sample(x * 0.00058 + 17.0, z * 0.00058 - 43.0) * 0.5 + 0.5;
         if (altitude > 24 && altitude < 76 && slope < 0.24 && mountain > 0.08 && mountain < 0.55
                 && c.temperature() > 0.40 && c.temperature() < 0.64
@@ -89,10 +130,25 @@ public final class BiomeEngine {
             return Biome.CHERRY_GROVE;
         }
 
-        if (region == LandscapeRegionSystem.LandscapeType.WETLAND_BASIN && c.humidity() > 0.62)
+        if(c.temperature()<0.16 && openFlat && c.humidity()<0.56 && rare>0.86) return Biome.ICE_SPIKES;
+
+        if (region == LandscapeRegionSystem.LandscapeType.WETLAND_BASIN && c.humidity() > 0.62) {
+            if(c.temperature()>0.66 && c.humidity()>0.78 && rare>0.56) return Biome.MANGROVE_SWAMP;
             return Biome.SWAMP;
-        if (region == LandscapeRegionSystem.LandscapeType.CANYONLANDS && c.humidity() < 0.40)
+        }
+        if (region == LandscapeRegionSystem.LandscapeType.CANYONLANDS && c.humidity() < 0.40) {
+            if(c.temperature()>0.68 && rare>0.68) return Biome.ERODED_BADLANDS;
             return c.temperature() > 0.62 ? Biome.BADLANDS : Biome.WOODED_BADLANDS;
+        }
+        if(region==LandscapeRegionSystem.LandscapeType.PLATEAU) {
+            if(c.temperature()>0.62 && c.humidity()<0.52) return Biome.SAVANNA_PLATEAU;
+            if(slope>0.20 && c.humidity()<0.42) return Biome.WINDSWEPT_GRAVELLY_HILLS;
+        }
+        if(region==LandscapeRegionSystem.LandscapeType.HIGHLANDS && slope>0.19) {
+            if(c.temperature()>0.66 && c.humidity()<0.50) return Biome.WINDSWEPT_SAVANNA;
+            if(c.humidity()>0.58) return Biome.WINDSWEPT_FOREST;
+            return Biome.WINDSWEPT_HILLS;
+        }
 
         if (altitude > 26 && mountain > 0.18) {
             if (c.temperature() < 0.58 && c.humidity() > 0.34) return Biome.TAIGA;
@@ -100,10 +156,44 @@ public final class BiomeEngine {
             if (valley > 0.42 && c.humidity() > 0.44) return Biome.MEADOW;
         }
 
-        return whittaker(c.temperature(), c.humidity(), openFlat, slope, openScore, x, z);
+        Biome base=whittaker(c.temperature(), c.humidity(), openFlat, slope, openScore);
+        return rareVariant(base,c,openFlat,slope,rare);
     }
 
-    /** Biomes de village vanilla que RWG réserve aux zones ouvertes/plates. */
+    private Biome undergroundBiome(int x,int y,int z,double surface) {
+        ClimateEngine.ClimateSample c=ctx.climate.sampleFast(x,z,surface);
+        GeologyMap.GeologySample geo=ctx.geology.sample(x,z);
+        double n=caveNoise.sample(x*0.0031+y*0.0007,z*0.0031-y*0.0005)*0.5+0.5;
+        double rare=MathUtil.clamp(ctx.config.biomes().rareBiomeFrequency(),0.02,0.48);
+
+        if(y<-30 && ctx.terrain.mountainInfluence(x,z)>0.32 && n>0.90-rare*0.18) return Biome.DEEP_DARK;
+        if(geo.type()==GeologyMap.RockType.VOLCANIC && y<42 && y>-54 && n>0.80-rare*0.16)
+            return Biome.SULFUR_CAVES;
+        if(geo.type()==GeologyMap.RockType.LIMESTONE && y<54 && n>0.66-rare*0.12)
+            return Biome.DRIPSTONE_CAVES;
+        if(c.humidity()>0.66 && c.temperature()>0.24 && y<48 && y>-32 && n>0.72-rare*0.10)
+            return Biome.LUSH_CAVES;
+        return null;
+    }
+
+    private Biome rareVariant(Biome base,ClimateEngine.ClimateSample c,boolean openFlat,double slope,double rare) {
+        double frequency=MathUtil.clamp(ctx.config.biomes().rareBiomeFrequency(),0.02,0.48);
+        double gate=1.0-frequency;
+        if(rare<gate) return base;
+
+        if(base==Biome.PLAINS) return c.humidity()>0.62?Biome.SUNFLOWER_PLAINS:Biome.PLAINS;
+        if(base==Biome.FOREST) {
+            if(c.humidity()>0.84 && rare>0.94) return Biome.PALE_GARDEN;
+            if(c.humidity()>0.70 && slope<0.16) return Biome.FLOWER_FOREST;
+            return Biome.OLD_GROWTH_BIRCH_FOREST;
+        }
+        if(base==Biome.BIRCH_FOREST && c.humidity()>0.58) return Biome.OLD_GROWTH_BIRCH_FOREST;
+        if(base==Biome.TAIGA) return c.humidity()>0.66?Biome.OLD_GROWTH_SPRUCE_TAIGA:Biome.OLD_GROWTH_PINE_TAIGA;
+        if(base==Biome.JUNGLE && c.humidity()>0.84) return Biome.BAMBOO_JUNGLE;
+        if(base==Biome.SAVANNA && !openFlat) return Biome.SAVANNA_PLATEAU;
+        return base;
+    }
+
     public boolean isVillageOpenBiome(Biome biome) {
         return biome == Biome.PLAINS || biome == Biome.SAVANNA || biome == Biome.DESERT
                 || biome == Biome.SNOWY_PLAINS || biome == Biome.TAIGA;
@@ -115,7 +205,13 @@ public final class BiomeEngine {
         return MathUtil.clamp(a * 0.72 + (1.0 - b) * 0.28, 0, 1);
     }
 
-    private Biome whittaker(double t, double h, boolean openFlat, double slope, double openness, int x, int z) {
+    private double rareField(int x,int z) {
+        double base=rareNoise.sample(x*0.00072+211,z*0.00072-157)*0.5+0.5;
+        double detail=rareNoise.sample(x*0.0019-37,z*0.0019+71)*0.5+0.5;
+        return MathUtil.clamp(base*0.76+detail*0.24,0,1);
+    }
+
+    private Biome whittaker(double t, double h, boolean openFlat, double slope, double openness) {
         var cfg=ctx.config.biomes();
         double forestH=MathUtil.clamp(cfg.temperateForestHumidity(),0.48,0.88);
         double darkH=Math.max(forestH+0.08,MathUtil.clamp(cfg.darkForestHumidity(),0.64,0.96));
@@ -150,6 +246,34 @@ public final class BiomeEngine {
         if (h < 0.56) return (openFlat || openness > 0.55) ? Biome.SAVANNA : Biome.BADLANDS;
         if (h > 0.88 && openness < 0.48) return Biome.JUNGLE;
         return Biome.SPARSE_JUNGLE;
+    }
+
+    private static boolean blendable(Biome b) {
+        return b!=Biome.RIVER&&b!=Biome.FROZEN_RIVER&&b!=Biome.BEACH&&b!=Biome.SNOWY_BEACH
+                &&b!=Biome.STONY_SHORE&&!isOcean(b)&&b!=Biome.MUSHROOM_FIELDS;
+    }
+
+    private static boolean compatibleTransition(Biome a,Biome b) {
+        return family(a)==family(b);
+    }
+
+    private static int family(Biome b) {
+        if(isOcean(b)) return 0;
+        if(b==Biome.DESERT||b==Biome.BADLANDS||b==Biome.ERODED_BADLANDS||b==Biome.WOODED_BADLANDS) return 1;
+        if(b==Biome.SAVANNA||b==Biome.SAVANNA_PLATEAU||b==Biome.WINDSWEPT_SAVANNA) return 2;
+        if(b==Biome.JUNGLE||b==Biome.SPARSE_JUNGLE||b==Biome.BAMBOO_JUNGLE) return 3;
+        if(b==Biome.SNOWY_PLAINS||b==Biome.SNOWY_TAIGA||b==Biome.ICE_SPIKES||b==Biome.GROVE) return 4;
+        if(b==Biome.FROZEN_PEAKS||b==Biome.JAGGED_PEAKS||b==Biome.STONY_PEAKS||b==Biome.SNOWY_SLOPES
+                ||b==Biome.WINDSWEPT_HILLS||b==Biome.WINDSWEPT_GRAVELLY_HILLS) return 5;
+        if(b==Biome.SWAMP||b==Biome.MANGROVE_SWAMP) return 6;
+        if(b==Biome.PLAINS||b==Biome.SUNFLOWER_PLAINS||b==Biome.MEADOW) return 7;
+        return 8; // forêts tempérées/boreales compatibles entre elles.
+    }
+
+    private static boolean isOcean(Biome b) {
+        return b==Biome.OCEAN||b==Biome.DEEP_OCEAN||b==Biome.COLD_OCEAN||b==Biome.DEEP_COLD_OCEAN
+                ||b==Biome.FROZEN_OCEAN||b==Biome.DEEP_FROZEN_OCEAN||b==Biome.LUKEWARM_OCEAN
+                ||b==Biome.DEEP_LUKEWARM_OCEAN||b==Biome.WARM_OCEAN;
     }
 
     private double macroSlope(int x, int z, double center) {
