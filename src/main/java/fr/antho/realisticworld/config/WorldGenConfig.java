@@ -56,7 +56,8 @@ public record WorldGenConfig(
                         c.getDouble("landscape.canyon-strength", 0.62),
                         c.getDouble("landscape.wetland-strength", 0.55),
                         c.getDouble("landscape.plateau-strength", 0.68),
-                        c.getDouble("landscape.landmark-strength", 0.74)
+                        c.getDouble("landscape.landmark-strength", 0.74),
+                        c.getDouble("landscape.regional-contrast", 1.18)
                 ),
                 new Ocean(
                         c.getDouble("ocean.shelf-width", 0.24),
@@ -108,7 +109,9 @@ public record WorldGenConfig(
                         c.getDouble("rivers.coastal-merge-height", 14.0),
                         c.getDouble("rivers.coastal-water-gradient", 0.34),
                         c.getDouble("rivers.channel-bed-flatness", 0.52),
-                        c.getDouble("rivers.bank-height-jitter", 0.42)
+                        c.getDouble("rivers.bank-height-jitter", 0.42),
+                        c.getDouble("rivers.thalweg-offset", 0.18),
+                        c.getDouble("rivers.bank-transition-power", 1.35)
                 ),
                 new Lakes(
                         c.getBoolean("lakes.enabled", true),
@@ -119,7 +122,10 @@ public record WorldGenConfig(
                         c.getDouble("lakes.max-depth", 9.0),
                         c.getDouble("lakes.min-rim-height", 4.5),
                         c.getDouble("lakes.coast-guard-height", 12.0),
-                        c.getInt("lakes.rim-samples", 28)
+                        c.getInt("lakes.rim-samples", 28),
+                        c.getDouble("lakes.river-connect-distance", 20.0),
+                        c.getDouble("lakes.shore-blend-width", 6.0),
+                        c.getDouble("lakes.bed-roughness", 0.42)
                 ),
                 new Climate(
                         c.getDouble("climate.latitude-period", 24000.0),
@@ -135,7 +141,10 @@ public record WorldGenConfig(
                         c.getDouble("biomes.open-flat-min-openness", 0.43),
                         c.getDouble("biomes.temperate-forest-humidity", 0.70),
                         c.getDouble("biomes.dark-forest-humidity", 0.86),
-                        c.getDouble("biomes.open-region-bias", 0.16)
+                        c.getDouble("biomes.open-region-bias", 0.16),
+                        c.getInt("biomes.transition-radius", 14),
+                        c.getDouble("biomes.transition-patch-scale", 0.045),
+                        c.getDouble("biomes.rare-biome-frequency", 0.18)
                 ),
                 new Caves(
                         c.getBoolean("caves.enabled", true),
@@ -156,7 +165,10 @@ public record WorldGenConfig(
                         c.getDouble("caves.aquifer-frequency", 0.045),
                         c.getInt("caves.aquifer-max-y", -18),
                         c.getBoolean("caves.protect-ocean-carvers", true),
-                        c.getDouble("caves.ocean-carver-max-land-ratio", 0.34)
+                        c.getDouble("caves.ocean-carver-max-land-ratio", 0.34),
+                        c.getDouble("caves.surface-detail-strength", 0.34),
+                        c.getDouble("caves.decoration-frequency", 0.018),
+                        c.getDouble("caves.step-frequency", 0.009)
                 ),
                 new Vegetation(
                         c.getBoolean("vegetation.enabled", true),
@@ -169,7 +181,9 @@ public record WorldGenConfig(
                         c.getDouble("vegetation.deadwood-density", 0.042),
                         c.getDouble("vegetation.parametric-variation", 0.92),
                         c.getDouble("vegetation.open-ground-cover-density", 0.78),
-                        c.getDouble("vegetation.open-shrub-density", 0.11)
+                        c.getDouble("vegetation.open-shrub-density", 0.11),
+                        c.getDouble("vegetation.azalea-frequency", 0.006),
+                        c.getDouble("vegetation.custom-flora-bias", 0.82)
                 ),
                 new NaturalFeatures(
                         c.getBoolean("natural-features.enabled", true),
@@ -204,7 +218,8 @@ public record WorldGenConfig(
                           double strataScale, double strataThickness, double dipStrength) {}
     public record Landscape(boolean enabled, double regionScale, double cliffStrength,
                             double canyonStrength, double wetlandStrength,
-                            double plateauStrength, double landmarkStrength) {}
+                            double plateauStrength, double landmarkStrength,
+                            double regionalContrast) {}
     public record Ocean(double shelfWidth, double shelfDepth, double abyssDepth,
                         double coastRuggedness, double islandFrequency, double estuaryStrength) {}
     public record Erosion(boolean enabled, int tileSize, int sampleSpacing, int marginSamples,
@@ -221,28 +236,34 @@ public record WorldGenConfig(
                          double floodplainMaxCut, double edgeRoughness,
                          double secondaryChannelFrequency, double coastalMergeHeight,
                          double coastalWaterGradient, double channelBedFlatness,
-                         double bankHeightJitter) {}
+                         double bankHeightJitter, double thalwegOffset,
+                         double bankTransitionPower) {}
     public record Lakes(boolean enabled, int cellSize, double frequency, double minRadius,
                         double maxRadius, double maxDepth, double minRimHeight,
-                        double coastGuardHeight, int rimSamples) {}
+                        double coastGuardHeight, int rimSamples, double riverConnectDistance,
+                        double shoreBlendWidth, double bedRoughness) {}
     public record Climate(double latitudePeriod, double temperatureScale, double humidityScale,
                           double altitudeLapseRate, double oceanMoisture,
                           double aspectStrength, double orographicStrength) {}
     public record Biomes(double openFlatMaxSlope, double openFlatMinOpenness,
                          double temperateForestHumidity, double darkForestHumidity,
-                         double openRegionBias) {}
+                         double openRegionBias, int transitionRadius,
+                         double transitionPatchScale, double rareBiomeFrequency) {}
     public record Caves(boolean enabled, double largeScale, double detailScale, double threshold,
                         int minY, int maxY, int surfaceBuffer, int oceanBuffer,
                         double tunnelScale, double tunnelRadius, int chamberSpacing,
                         double chamberFrequency, double maxChamberRadius,
                         double overlayStrength, double verticalLinkFrequency,
                         double aquiferFrequency, int aquiferMaxY,
-                        boolean protectOceanCarvers, double oceanCarverMaxLandRatio) {}
+                        boolean protectOceanCarvers, double oceanCarverMaxLandRatio,
+                        double surfaceDetailStrength, double decorationFrequency,
+                        double stepFrequency) {}
     public record Vegetation(boolean enabled, double treeDensity, double shrubDensity,
                              double groundCoverDensity, double boulderDensity, double groveScale,
                              double successionScale, double deadwoodDensity,
                              double parametricVariation, double openGroundCoverDensity,
-                             double openShrubDensity) {}
+                             double openShrubDensity, double azaleaFrequency,
+                             double customFloraBias) {}
     public record NaturalFeatures(boolean enabled, double talusDensity, double outcropDensity,
                                   double fallenLogDensity, double stumpDensity,
                                   double bankGravelDensity) {}
