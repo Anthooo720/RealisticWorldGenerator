@@ -1,0 +1,151 @@
+config-version: 9
+
+generation:
+  # 0 = seed du monde Minecraft.
+  seed: 0
+
+terrain:
+  sea-level: 63
+  base-scale: 0.00118
+  continent-scale: 0.00032
+  warp-scale: 0.00042
+  warp-strength: 150.0
+  hill-height: 28.0
+  foothill-height: 34.0
+  mountain-height: 112.0
+  mountain-chain-width: 0.31
+  alpine-ruggedness: 0.88
+  valley-depth: 18.0
+  octaves: 5
+  tectonic-cell-size: 5600
+  tectonic-boundary-width: 1450.0
+  glacial-valley-strength: 0.78
+  micro-relief: 4.2
+
+geology:
+  enabled: true
+  province-size: 5200
+  contact-blend: 0.18
+  # Couches rocheuses 3D visibles dans les falaises et grottes.
+  strata-scale: 0.010
+  strata-thickness: 7.0
+  dip-strength: 0.34
+
+landscape:
+  enabled: true
+  region-scale: 0.00020
+  cliff-strength: 0.72
+  canyon-strength: 0.62
+  wetland-strength: 0.55
+
+ocean:
+  # Plateau continental -> talus -> océan profond.
+  shelf-width: 0.24
+  shelf-depth: 18.0
+  abyss-depth: 58.0
+  coast-ruggedness: 0.24
+  island-frequency: 0.16
+  estuary-strength: 0.42
+
+erosion:
+  enabled: true
+  tile-size: 320
+  sample-spacing: 8
+  margin-samples: 10
+  hydraulic-iterations: 42
+  thermal-iterations: 6
+  rainfall: 0.40
+  evaporation: 0.15
+  capacity: 1.58
+  erosion-rate: 0.23
+  deposition-rate: 0.14
+  talus: 2.50
+  intensity: 0.94
+  velocity-inertia: 0.44
+
+rivers:
+  enabled: true
+  tile-size: 640
+  sample-spacing: 5
+  margin-samples: 28
+  accumulation-threshold: 46.0
+  max-carve-depth: 7.2
+  max-width: 13.0
+  min-width: 1.4
+  bank-buffer: 1.75
+  max-water-depth: 2.6
+  # Les fortes pentes restent des ravins/torrents, pas des nappes d'eau en escalier.
+  max-wet-grade: 0.17
+  waterfall-grade: 0.11
+  terrace-run: 14
+  meander-scale: 0.00115
+  meander-strength: 0.94
+  floodplain-width: 7.5
+
+lakes:
+  enabled: true
+  # Les lacs sont des bassins continus indépendants des frontières de tuiles.
+  cell-size: 1800
+  frequency: 0.20
+  min-radius: 26.0
+  max-radius: 105.0
+  max-depth: 9.0
+  min-rim-height: 4.5
+
+climate:
+  latitude-period: 24000.0
+  temperature-scale: 0.00062
+  humidity-scale: 0.00072
+  altitude-lapse-rate: 0.0030
+  ocean-moisture: 0.20
+  aspect-strength: 0.12
+  orographic-strength: 0.22
+
+caves:
+  # Grottes v3 vanilla+ : Minecraft génère le réseau principal, RWG ajoute seulement de rares connecteurs/salles moyennes.
+  enabled: true
+  # Paramètres historiques conservés pour compatibilité de configuration.
+  large-scale: 0.018
+  detail-scale: 0.047
+  threshold: 0.72
+  min-y: -52
+  max-y: 112
+  surface-buffer: 12
+  ocean-buffer: 18
+  tunnel-scale: 0.024
+  tunnel-radius: 0.090
+  chamber-spacing: 176
+  chamber-frequency: 0.055
+  max-chamber-radius: 8.0
+
+vegetation:
+  enabled: true
+  tree-density: 0.074
+  shrub-density: 0.32
+  ground-cover-density: 0.62
+  boulder-density: 0.018
+  grove-scale: 0.00120
+  succession-scale: 0.00048
+  deadwood-density: 0.042
+  # Part des arbres utilisant des formes paramétriques uniques.
+  parametric-variation: 0.92
+
+natural-features:
+  enabled: true
+  talus-density: 0.18
+  outcrop-density: 0.14
+  fallen-log-density: 0.034
+  stump-density: 0.020
+  bank-gravel-density: 0.24
+
+compatibility:
+  # Base vanilla activée : RWG se limite à une surcouche légère.
+  vanilla-caves: true
+  # Paper place les blocs des structures vanilla pendant sa passe de décoration.
+  # Cette option doit rester true pour que /locate structure corresponde à une structure visible.
+  vanilla-decorations: true
+
+performance:
+  erosion-cache-tiles: 64
+  watershed-cache-tiles: 48
+  river-cache-tiles: 48
