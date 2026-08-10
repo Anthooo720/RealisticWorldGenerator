@@ -23,8 +23,8 @@ public final class RiverEngine {
     private final SimplexNoise bankNoise;
     private final SimplexNoise floodNoise;
 
-    public RiverEngine(long seed, TerrainEngine terrain, WatershedEngine watersheds,
-                       WorldGenConfig.Rivers cfg, WorldGenConfig.Ocean ocean, int ignoredCacheTiles) {
+    public RiverEngine(long seed,TerrainEngine terrain,WatershedEngine watersheds,
+                       WorldGenConfig.Rivers cfg,WorldGenConfig.Ocean ocean,int ignoredCacheTiles) {
         this.terrain=terrain;
         this.watersheds=watersheds;
         this.cfg=cfg;
@@ -40,7 +40,7 @@ public final class RiverEngine {
         if(!cfg.enabled()) return RiverSample.NONE;
 
         WatershedEngine.HydroSample h=watersheds.sample(x,z);
-        if(h.channelAccumulation()<=0 || !Double.isFinite(h.channelWaterSurface())) return RiverSample.NONE;
+        if(h.channelAccumulation()<=0||!Double.isFinite(h.channelWaterSurface())) return RiverSample.NONE;
 
         double natural=terrain.heightWithoutRivers(x,z);
         if(natural<=terrain.seaLevel()-1) return RiverSample.NONE;
@@ -52,7 +52,7 @@ public final class RiverEngine {
         double width=riverWidth(x,z,natural,maturity,grade,calm);
 
         double signed=Double.isFinite(h.channelSignedDistance())
-                ? h.channelSignedDistance() : h.channelDistance();
+                ?h.channelSignedDistance():h.channelDistance();
         if(!Double.isFinite(signed)) return RiverSample.NONE;
 
         ChannelGeometry geometry=channelGeometry(x,z,signed,width,maturity,calm);
@@ -67,8 +67,6 @@ public final class RiverEngine {
         double waterSurface=h.channelWaterSurface();
         if(!Double.isFinite(waterSurface)) return RiverSample.NONE;
 
-        // Les fortes pentes sont des torrents : on conserve le ravin, mais on réduit
-        // fortement les colonnes d'eau pour éviter une cascade Minecraft tous les 2 blocs.
         double wetGradeFactor=1.0;
         if(grade>cfg.waterfallGrade()) {
             wetGradeFactor=1.0-MathUtil.smootherstep(
@@ -77,17 +75,17 @@ public final class RiverEngine {
         }
         if(grade>cfg.maxWetGrade()) wetGradeFactor*=0.10;
 
-        // Large transition humide : le dernier bloc d'eau est déjà très peu profond et la
-        // colonne sèche suivante appartient à une berge qui remonte progressivement.
-        double shoreFeather=0.72+maturity*0.72;
+        // La zone humide déborde légèrement dans la montée de rive. Ainsi, au moment où
+        // isRiver() devient faux, le sol de la berge est déjà revenu au niveau de l'eau.
+        double wetInner=0.70+maturity*0.55;
+        double wetOuter=wetHalf+Math.min(2.2,bankWidth*0.18);
         double wet=1.0-MathUtil.smootherstep(
-                Math.max(0.35,wetHalf-shoreFeather*0.58),wetHalf+shoreFeather*0.42,distance);
+                Math.max(0.35,wetHalf-wetInner),wetOuter,distance);
         wet*=geometry.wetMultiplier()*wetGradeFactor;
         wet=MathUtil.clamp(wet,0,1);
 
-        // Vérification de confinement latérale sans modifier la cote hydraulique.
         double dirLen=Math.max(1.0e-6,Math.hypot(h.channelDirX(),h.channelDirZ()));
-        double nx=-h.channelDirZ()/dirLen, nz=h.channelDirX()/dirLen;
+        double nx=-h.channelDirZ()/dirLen,nz=h.channelDirX()/dirLen;
         double outerProbe=Math.max(4.0,bankHalf+1.8);
         double bankA=terrain.heightWithoutRivers(x+nx*outerProbe,z+nz*outerProbe);
         double bankB=terrain.heightWithoutRivers(x-nx*outerProbe,z-nz*outerProbe);
@@ -100,15 +98,18 @@ public final class RiverEngine {
         double waterDepth=riverDepth(maturity,grade,calm);
         double desired=desiredCrossSectionHeight(
                 x,z,natural,waterSurface,distance,wetHalf,bankHalf,floodHalf,waterDepth,maturity,calm);
-        double carve=MathUtil.clamp(Math.max(0.0,natural-desired),0,cfg.maxCarveDepth());
+        double rawCarve=Math.max(0.0,natural-desired);
+        if(distance>wetHalf&&distance<=bankHalf) rawCarve=Math.min(rawCarve,cfg.bankMaxCut());
+        else if(distance>bankHalf) rawCarve=Math.min(rawCarve,cfg.floodplainMaxCut());
+        double carve=MathUtil.clamp(rawCarve,0,cfg.maxCarveDepth());
 
         double bedAfter=natural-carve;
-        if(wet>0.14 && bedAfter>waterSurface-0.08) wet=0;
+        if(wet>0.14&&bedAfter>waterSurface-0.08) wet=0;
 
         double bank=bankStrength(distance,wetHalf,bankHalf,wet);
         double flood=floodplainStrength(distance,bankHalf,floodHalf,wet,bank);
         boolean estuary=natural<=terrain.seaLevel()+cfg.coastalMergeHeight()
-                && maturity>0.28 && grade<0.085;
+                &&maturity>0.28&&grade<0.085;
 
         return new RiverSample(
                 Math.max(wet,Math.max(bank*0.68,flood*0.22)),
@@ -125,7 +126,7 @@ public final class RiverEngine {
 
         double coast=1.0-MathUtil.smoothstep(2.0,Math.max(8.0,cfg.coastalMergeHeight()+8.0),
                 natural-terrain.seaLevel());
-        if(maturity>0.30 && grade<0.080) width*=1.0+coast*ocean.estuaryStrength()*0.74;
+        if(maturity>0.30&&grade<0.080) width*=1.0+coast*ocean.estuaryStrength()*0.74;
         return MathUtil.clamp(width,cfg.minWidth(),cfg.maxWidth()*(1.0+ocean.estuaryStrength()*0.22));
     }
 
@@ -135,10 +136,12 @@ public final class RiverEngine {
         double edge=(edgeNoise.sample(x*0.0026,z*0.0026)*0.82
                 +edgeNoise.sample(x*0.0064-19,z*0.0064+37)*0.18)
                 *cfg.edgeRoughness()*(0.16+half*0.055);
-        double mainDistance=Math.max(0.0,Math.abs(signed)-edge);
+        double thalwegShift=bankNoise.sample(x*0.0018+47,z*0.0018-31)
+                *MathUtil.clamp(cfg.thalwegOffset(),0.0,0.36)*half;
+        double shifted=signed-thalwegShift;
+        double mainDistance=Math.max(0.0,Math.abs(shifted)-edge);
         double wetHalf=Math.max(0.82,half*(0.88+maturity*0.08));
 
-        // Les bras secondaires restent rares et uniquement sur les grandes rivières lentes.
         double braidField=braidNoise.sample(x*0.00072+71,z*0.00072-41)*0.5+0.5;
         double activation=MathUtil.smootherstep(1.0-cfg.secondaryChannelFrequency(),0.985,braidField)
                 *MathUtil.smootherstep(0.72,0.94,maturity)
@@ -147,7 +150,7 @@ public final class RiverEngine {
 
         double sideSign=braidNoise.sample(x*0.0015-17,z*0.0015+83)>=0?1.0:-1.0;
         double sideOffset=sideSign*(half*1.68+2.1+maturity*2.1);
-        double sideDistance=Math.abs(signed-sideOffset);
+        double sideDistance=Math.abs(shifted-sideOffset);
         double sideHalf=Math.max(0.68,half*(0.24+maturity*0.13));
         if(sideDistance>=mainDistance) return new ChannelGeometry(mainDistance,wetHalf,1.0);
         return new ChannelGeometry(sideDistance,sideHalf,MathUtil.clamp(activation*0.82,0,1));
@@ -175,8 +178,8 @@ public final class RiverEngine {
 
         if(distance<=bankHalf) {
             double bankU=MathUtil.clamp((distance-wetHalf)/Math.max(0.5,bankHalf-wetHalf),0,1);
-            double rise=MathUtil.smootherstep(0.0,0.34,bankU);
-            double blendOut=Math.pow(MathUtil.smootherstep(0.22,1.0,bankU),
+            double rise=MathUtil.smootherstep(0.0,0.22,bankU);
+            double blendOut=Math.pow(MathUtil.smootherstep(0.18,1.0,bankU),
                     MathUtil.clamp(cfg.bankTransitionPower(),0.70,1.80));
             double asym=bankNoise.sample(x*0.0025,z*0.0025)*cfg.bankHeightJitter();
             double crest=water+0.58+asym*0.18+maturity*0.20;
@@ -184,9 +187,8 @@ public final class RiverEngine {
             return MathUtil.lerp(inner,natural,blendOut);
         }
 
-        if(distance<=floodHalf && floodHalf>bankHalf+0.25) {
+        if(distance<=floodHalf&&floodHalf>bankHalf+0.25) {
             double u=MathUtil.clamp((distance-bankHalf)/(floodHalf-bankHalf),0,1);
-            // Enveloppe nulle aux deux bords : aucune cassure à la sortie de berge.
             double enter=MathUtil.smootherstep(0.0,0.24,u);
             double exit=1.0-MathUtil.smootherstep(0.58,1.0,u);
             double envelope=enter*exit*calm*MathUtil.smoothstep(0.26,0.72,maturity);
@@ -199,7 +201,7 @@ public final class RiverEngine {
     }
 
     private static double bankStrength(double distance,double wetHalf,double bankHalf,double wet) {
-        if(distance<=wetHalf || distance>=bankHalf) return 0;
+        if(distance<=wetHalf||distance>=bankHalf) return 0;
         double u=(distance-wetHalf)/Math.max(0.5,bankHalf-wetHalf);
         double shape=MathUtil.smootherstep(0.0,0.22,u)*(1.0-MathUtil.smootherstep(0.68,1.0,u));
         return MathUtil.clamp(shape*(1.0-wet),0,1);
@@ -207,7 +209,7 @@ public final class RiverEngine {
 
     private static double floodplainStrength(double distance,double bankHalf,double floodHalf,
                                              double wet,double bank) {
-        if(distance<=bankHalf || distance>=floodHalf || floodHalf<=bankHalf) return 0;
+        if(distance<=bankHalf||distance>=floodHalf||floodHalf<=bankHalf) return 0;
         double u=(distance-bankHalf)/(floodHalf-bankHalf);
         double shape=MathUtil.smootherstep(0.0,0.25,u)*(1.0-MathUtil.smootherstep(0.62,1.0,u));
         return MathUtil.clamp(shape*(1.0-wet)*(1.0-bank),0,1);
