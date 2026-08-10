@@ -3,6 +3,8 @@ name: Package RWG jar
 on:
   push:
     branches: [rwg-complete-fixes]
+  pull_request:
+    branches: [main]
 
 jobs:
   package:
