@@ -1,8 +1,7 @@
 package fr.antho.realisticworld.climate;
 
 import fr.antho.realisticworld.config.WorldGenConfig;
-import fr.antho.realisticworld.hydrology.LakeEngine;
-import fr.antho.realisticworld.hydrology.RiverEngine;
+import fr.antho.realisticworld.hydrology.WaterColumnEngine;
 import fr.antho.realisticworld.noise.FractalNoise;
 import fr.antho.realisticworld.noise.SimplexNoise;
 import fr.antho.realisticworld.terrain.TerrainEngine;
@@ -12,18 +11,16 @@ import fr.antho.realisticworld.util.MathUtil;
 public final class ClimateEngine {
     private final WorldGenConfig.Climate cfg;
     private final TerrainEngine terrain;
-    private final RiverEngine rivers;
-    private final LakeEngine lakes;
+    private final WaterColumnEngine waterColumns;
     private final FractalNoise tempNoise;
     private final FractalNoise humidityNoise;
     private final SimplexNoise windNoise;
 
     public ClimateEngine(long seed, WorldGenConfig.Climate cfg, TerrainEngine terrain,
-                         RiverEngine rivers, LakeEngine lakes) {
+                         WaterColumnEngine waterColumns) {
         this.cfg = cfg;
         this.terrain = terrain;
-        this.rivers = rivers;
-        this.lakes = lakes;
+        this.waterColumns = waterColumns;
         this.tempNoise = new FractalNoise(seed ^ 0xABCDEF1234L, 4);
         this.humidityNoise = new FractalNoise(seed ^ 0xBADC0FFEE0L, 4);
         this.windNoise = new SimplexNoise(seed ^ 0x57494E444649454CL);
@@ -38,12 +35,9 @@ public final class ClimateEngine {
         return sampleInternal(x, z, elevation, false);
     }
 
-
     /**
      * Échantillon macro très léger destiné au BiomeProvider et aux recherches /locate.
      * Aucun bassin versant, aucune érosion en tuile et aucun calcul de pente n'est demandé.
-     * Le climat reste cohérent à grande échelle, mais les micro-effets de rivière/exposition
-     * sont volontairement ignorés pour qu'une recherche de biome ne puisse pas saturer le serveur.
      */
     public ClimateSample sampleFast(double x, double z, double elevation) {
         double period = Math.max(4000.0, cfg.latitudePeriod());
@@ -71,8 +65,6 @@ public final class ClimateEngine {
         double baseTemp = 0.92 - latitude * 0.82 + synoptic;
         double altitudePenalty = Math.max(0.0, elevation - terrain.seaLevel()) * cfg.altitudeLapseRate();
 
-        // Exposition des versants : en hémisphère nord, les pentes regardant vers le sud
-        // sont plus chaudes/sèches ; l'effet s'inverse dans l'autre hémisphère.
         TerrainEngine.SlopeVector sv = terrain.slopeVector(x, z);
         double downhillZ = -sv.dz();
         double southFacing = downhillZ * hemisphere;
@@ -85,7 +77,6 @@ public final class ClimateEngine {
         double oceanInfluence = 1.0 - MathUtil.smoothstep(-0.35, 0.45, continentalness);
         h += oceanInfluence * cfg.oceanMoisture();
 
-        // Vents dominants variables à très grande échelle + soulèvement orographique.
         double windAngle = (windNoise.sample(x * 0.00012, z * 0.00012) * 0.42 + 0.08) * Math.PI;
         double wx = Math.cos(windAngle), wz = Math.sin(windAngle);
         double upwind = terrain.heightWithoutRivers(x - wx * 192.0, z - wz * 192.0);
@@ -94,17 +85,14 @@ public final class ClimateEngine {
         double lee = (upwind - downwind) / 160.0;
         h += MathUtil.clamp(rise, -0.18, 0.26) * cfg.orographicStrength();
         h -= Math.max(0.0, lee) * cfg.orographicStrength() * 0.62;
-
-        // Les pentes très exposées au soleil sèchent davantage.
         h -= Math.max(0.0, southFacing) * aspectWeight * cfg.aspectStrength() * 0.42;
 
-        // Couloirs fluviaux et lacs humidifient localement le fond des vallées. Les
-        // planificateurs macro peuvent désactiver ce coût pour ne pas construire un bassin
-        // versant complet pour chaque cellule de village potentielle.
+        // Les effets d'eau locaux réutilisent la colonne déjà cachée au lieu de recalculer
+        // RiverEngine et LakeEngine indépendamment du générateur principal.
         if (localWater) {
-            RiverEngine.RiverSample river = rivers.sample(x, z);
-            LakeEngine.LakeSample lake = lakes.sample(x, z);
-            h += MathUtil.clamp(river.strength() * 0.09 + lake.strength() * 0.14, 0, 0.18);
+            int ix=(int)Math.floor(x), iz=(int)Math.floor(z);
+            WaterColumnEngine.ColumnSample column=waterColumns.sample(ix,iz);
+            h += MathUtil.clamp(column.river().strength() * 0.09 + column.lake().strength() * 0.14, 0, 0.18);
         }
 
         return new ClimateSample(temp, MathUtil.clamp(h, 0.0, 1.0), continentalness,
