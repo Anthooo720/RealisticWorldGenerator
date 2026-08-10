@@ -3,6 +3,8 @@ name: RWG build check
 on:
   push:
     branches: [rwg-complete-fixes]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
