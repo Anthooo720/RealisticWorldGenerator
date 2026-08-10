@@ -6,6 +6,8 @@ import fr.antho.realisticworld.noise.SimplexNoise;
 import fr.antho.realisticworld.util.BoundedCache;
 import fr.antho.realisticworld.util.MathUtil;
 
+import java.util.Arrays;
+
 /**
  * Érosion hydraulique + thermique par tuiles. La simulation suit eau, sédiments et
  * inertie de l'écoulement ; la géologie module l'érodabilité et le talus naturel.
@@ -43,13 +45,14 @@ public final class ErosionEngine {
         int originX = key.x * cfg.tileSize() - margin * spacing;
         int originZ = key.z * cfg.tileSize() - margin * spacing;
 
-        double[] h = new double[n * n];
-        double[] original = new double[n * n];
-        double[] water = new double[n * n];
-        double[] sediment = new double[n * n];
-        double[] vx = new double[n * n];
-        double[] vz = new double[n * n];
-        double[] resistance = new double[n * n];
+        int size=n*n;
+        double[] h = new double[size];
+        double[] original = new double[size];
+        double[] water = new double[size];
+        double[] sediment = new double[size];
+        double[] vx = new double[size];
+        double[] vz = new double[size];
+        double[] resistance = new double[size];
         for (int z = 0; z < n; z++) {
             for (int x = 0; x < n; x++) {
                 int i = z * n + x;
@@ -64,11 +67,19 @@ public final class ErosionEngine {
         int[] dz = {-1,-1,-1,0,0,1,1,1};
         double inertia = MathUtil.clamp(cfg.velocityInertia(), 0.0, 0.92);
 
+        // Buffers réutilisés entre itérations : l'ancienne version allouait quatre grands
+        // tableaux à chaque tour hydraulique, créant beaucoup de pression GC à chaque miss
+        // de tuile sans apporter la moindre différence visuelle.
+        double[] nextWater = new double[size];
+        double[] nextSed = new double[size];
+        double[] nextVx = new double[size];
+        double[] nextVz = new double[size];
+
         for (int iter = 0; iter < Math.max(0, cfg.hydraulicIterations()); iter++) {
-            double[] nextWater = new double[h.length];
-            double[] nextSed = new double[h.length];
-            double[] nextVx = new double[h.length];
-            double[] nextVz = new double[h.length];
+            Arrays.fill(nextWater,0.0);
+            Arrays.fill(nextSed,0.0);
+            Arrays.fill(nextVx,0.0);
+            Arrays.fill(nextVz,0.0);
 
             for (int z = 1; z < n - 1; z++) {
                 for (int x = 1; x < n - 1; x++) {
@@ -141,21 +152,26 @@ public final class ErosionEngine {
                 }
             }
 
-            for (int i = 0; i < water.length; i++) {
-                water[i] = nextWater[i];
-                sediment[i] = nextSed[i];
-                if (nextWater[i] > 1.0e-8) {
-                    vx[i] = nextVx[i] / nextWater[i];
-                    vz[i] = nextVz[i] / nextWater[i];
+            // Échange des buffers au lieu de recopier quatre tableaux complets.
+            double[] swap=water; water=nextWater; nextWater=swap;
+            swap=sediment; sediment=nextSed; nextSed=swap;
+            swap=vx; vx=nextVx; nextVx=swap;
+            swap=vz; vz=nextVz; nextVz=swap;
+
+            for (int i = 0; i < size; i++) {
+                if (water[i] > 1.0e-8) {
+                    vx[i] /= water[i];
+                    vz[i] /= water[i];
                     double len = Math.hypot(vx[i], vz[i]);
                     if (len > 1.0) { vx[i] /= len; vz[i] /= len; }
                 } else { vx[i] = 0; vz[i] = 0; }
             }
         }
 
-        // Érosion thermique : roches dures gardent des faces plus raides ; sédiments se détendent davantage.
+        // Érosion thermique : un seul buffer delta réutilisé entre itérations.
+        double[] delta = new double[size];
         for (int iter = 0; iter < Math.max(0, cfg.thermalIterations()); iter++) {
-            double[] delta = new double[h.length];
+            Arrays.fill(delta,0.0);
             for (int z = 1; z < n - 1; z++) {
                 for (int x = 1; x < n - 1; x++) {
                     int idx = z * n + x;
@@ -171,11 +187,11 @@ public final class ErosionEngine {
                     }
                 }
             }
-            for (int i = 0; i < h.length; i++) h[i] += delta[i];
+            for (int i = 0; i < size; i++) h[i] += delta[i];
         }
 
         double intensity = MathUtil.clamp(cfg.intensity(), 0.0, 1.5);
-        for (int i = 0; i < h.length; i++) h[i] = original[i] + (h[i] - original[i]) * intensity;
+        for (int i = 0; i < size; i++) h[i] = original[i] + (h[i] - original[i]) * intensity;
         return new Tile(originX, originZ, spacing, n, h);
     }
 

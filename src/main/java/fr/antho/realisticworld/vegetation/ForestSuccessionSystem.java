@@ -2,8 +2,7 @@ package fr.antho.realisticworld.vegetation;
 
 import fr.antho.realisticworld.climate.ClimateEngine;
 import fr.antho.realisticworld.config.WorldGenConfig;
-import fr.antho.realisticworld.hydrology.LakeEngine;
-import fr.antho.realisticworld.hydrology.RiverEngine;
+import fr.antho.realisticworld.hydrology.WaterColumnEngine;
 import fr.antho.realisticworld.landscape.LandscapeRegionSystem;
 import fr.antho.realisticworld.noise.SimplexNoise;
 import fr.antho.realisticworld.terrain.TerrainEngine;
@@ -17,21 +16,19 @@ public final class ForestSuccessionSystem {
     private final WorldGenConfig config;
     private final TerrainEngine terrain;
     private final ClimateEngine climate;
-    private final RiverEngine rivers;
-    private final LakeEngine lakes;
+    private final WaterColumnEngine waterColumns;
     private final LandscapeRegionSystem landscape;
     private final SimplexNoise ageNoise;
     private final SimplexNoise disturbanceNoise;
     private final SimplexNoise densityNoise;
 
     public ForestSuccessionSystem(long seed, WorldGenConfig config, TerrainEngine terrain,
-                                  ClimateEngine climate, RiverEngine rivers, LakeEngine lakes,
+                                  ClimateEngine climate, WaterColumnEngine waterColumns,
                                   LandscapeRegionSystem landscape) {
         this.config = config;
         this.terrain = terrain;
         this.climate = climate;
-        this.rivers = rivers;
-        this.lakes = lakes;
+        this.waterColumns = waterColumns;
         this.landscape = landscape;
         this.ageNoise = new SimplexNoise(seed ^ 0x464F524553544147L);
         this.disturbanceNoise = new SimplexNoise(seed ^ 0x444953545552424CL);
@@ -64,7 +61,9 @@ public final class ForestSuccessionSystem {
         };
 
         double patch = densityNoise.sample(x * config.vegetation().groveScale(), z * config.vegetation().groveScale()) * 0.5 + 0.5;
-        double waterBoost = MathUtil.clamp(rivers.sample(x, z).strength() * 0.12 + lakes.sample(x, z).strength() * 0.10, 0, 0.16);
+        int ix=(int)Math.floor(x), iz=(int)Math.floor(z);
+        WaterColumnEngine.ColumnSample column=waterColumns.sample(ix,iz);
+        double waterBoost = MathUtil.clamp(column.river().strength() * 0.12 + column.lake().strength() * 0.10, 0, 0.16);
         double density = MathUtil.clamp(thermal * moisture * treeLine * regionFactor
                 * (0.42 + patch * 0.78) + waterBoost - disturbance * 0.32, 0, 1);
         double oldGrowth = MathUtil.smootherstep(0.68, 0.93, age) * density;

@@ -18,9 +18,9 @@ import java.util.PriorityQueue;
  * segments de chenal continus. La distance et le niveau d'eau sont calculés par
  * projection sur ces segments, et non plus par interpolation de cellules bleues.
  *
- * Cette représentation est essentielle dans Minecraft : une source d'eau placée
- * au-dessus d'une berge se met immédiatement à couler hors du lit. Chaque nœud de
- * chenal reçoit donc aussi un niveau d'eau "safe" borné par les deux berges.
+ * <p>La cote hydraulique reste volontairement en double jusqu'au dernier arbitre de
+ * colonne. La quantifier ici puis à nouveau dans RiverEngine créait des terrasses d'eau
+ * artificielles et des ruptures visibles aux confluences.</p>
  */
 public final class WatershedEngine {
     private final long seed;
@@ -139,10 +139,6 @@ public final class WatershedEngine {
         double[] channelZ = new double[size];
         Arrays.fill(safeWater, Double.POSITIVE_INFINITY);
 
-        // Le D8 reste la topologie, mais les nœuds VISUELS ne restent pas sur les centres de
-        // la grille. Chaque point est déplacé dans la normale du courant par un champ continu.
-        // Avec un spacing de 5 blocs, les segments successifs deviennent une polyligne souple
-        // au lieu de longues diagonales/angles à 45° typiques du D8.
         double qNormDen = Math.log1p(Math.max(8.0, cfg.accumulationThreshold() * 22.0));
         double warpScale = Math.max(0.00020, cfg.meanderScale());
         for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) {
@@ -166,8 +162,7 @@ public final class WatershedEngine {
             channelZ[i]=gz+nz*offset;
         }
 
-        // Un chenal est une ligne de drainage. On retire les dépressions profondes : elles
-        // relèvent du système de lac et ne doivent jamais devenir une nappe de rivière.
+        // Un chenal est une ligne de drainage. Les dépressions profondes restent au système de lac.
         for (int z = 1; z < n - 1; z++) for (int x = 1; x < n - 1; x++) {
             int i = z * n + x;
             if (h[i] <= terrain.seaLevel() - 1 || flow[i] < threshold) continue;
@@ -189,19 +184,14 @@ public final class WatershedEngine {
             double localBank = Math.min(bankA, bankB);
             double level = Math.min(h[i], localBank) - cfg.bankBuffer();
 
-            // Raccord estuarien progressif. Un seuil fixe (+5.5) produisait encore un
-            // dernier palier de rivière trop haut avant la mer. Le plafond hydrologique
-            // converge maintenant vers seaLevel sur toute la bande littorale configurée.
-            double coastAbove=Math.max(0.0,h[i]-(terrain.seaLevel()+1.5));
-            double coastalCeiling=terrain.seaLevel()+Math.min(
-                    coastAbove*MathUtil.clamp(cfg.coastalWaterGradient(),0.05,0.80),
-                    Math.max(1.0,cfg.coastalMergeHeight()*0.42));
-            if(h[i]<=terrain.seaLevel()+cfg.coastalMergeHeight()) level=Math.min(level,coastalCeiling);
-            safeWater[i] = Math.floor(level + 1.0e-6);
+            if (h[i] <= terrain.seaLevel() + cfg.coastalMergeHeight()) {
+                level = Math.min(level, coastalWaterCeiling(h[i]));
+            }
+            // Important : pas de floor ici. La cote hydraulique continue est interpolée sur le segment.
+            safeWater[i] = level;
         }
 
-        // Rend le profil longitudinal monotone : en allant vers l'aval le niveau ne peut
-        // jamais remonter. Les chutes restent possibles, mais aucune "bosse d'eau".
+        // Le profil longitudinal ne remonte jamais vers l'aval.
         for (int i : order) {
             if (!center[i] || !Double.isFinite(safeWater[i])) continue;
             int d = downstream[i];
@@ -211,8 +201,6 @@ public final class WatershedEngine {
             }
         }
 
-        // Main stem entrant par nœud : utilisé uniquement pour lisser visuellement les
-        // virages D8 avec une Catmull-Rom. À une confluence on suit l'affluent au plus gros débit.
         int[] mainUpstream = new int[size];
         Arrays.fill(mainUpstream,-1);
         for(int i=0;i<size;i++) {
@@ -246,13 +234,8 @@ public final class WatershedEngine {
             if (center[d] && Double.isFinite(safeWater[d])) {
                 w2 = Math.min(w1, safeWater[d]);
             } else if (h[d] <= terrain.seaLevel() + cfg.coastalMergeHeight()) {
-                double coastAbove=Math.max(0.0,h[d]-(terrain.seaLevel()+1.5));
-                double coastalCeiling=terrain.seaLevel()+Math.min(
-                        coastAbove*MathUtil.clamp(cfg.coastalWaterGradient(),0.05,0.80),
-                        Math.max(1.0,cfg.coastalMergeHeight()*0.42));
-                w2 = Math.min(w1, Math.floor(coastalCeiling+1.0e-6));
+                w2 = Math.min(w1, coastalWaterCeiling(h[d]));
             } else {
-                // Segment terminal en bord de tuile : reste sous le terrain local.
                 w2 = Math.min(w1, h[d] - cfg.bankBuffer());
             }
             Segment s = new Segment(x0,z0,x1,z1,x2,z2,x3,z3,h[i],h[d],flow[i],flow[d],w1,w2);
@@ -260,8 +243,6 @@ public final class WatershedEngine {
             segments.add(s);
         }
 
-        // Chaque nœud de la grille mémorise le segment continu le plus proche. Lors du
-        // sample final on reprojette les vraies coordonnées du bloc sur ce segment.
         int[] nearestSegment = new int[size];
         Arrays.fill(nearestSegment, -1);
         double[] nearestDistance = new double[size];
@@ -295,6 +276,13 @@ public final class WatershedEngine {
                 Math.log1p(Math.max(1.0, q)) / Math.log1p(Math.max(8.0, cfg.accumulationThreshold() * 22.0)), 0, 1);
         double width = cfg.minWidth() + (cfg.maxWidth() - cfg.minWidth()) * Math.pow(normalized, 1.22);
         return MathUtil.clamp(width, cfg.minWidth(), cfg.maxWidth());
+    }
+
+    private double coastalWaterCeiling(double terrainHeight) {
+        double sea = terrain.seaLevel();
+        double above = Math.max(0.0, terrainHeight - (sea + 1.5));
+        double rise = above * MathUtil.clamp(cfg.coastalWaterGradient(), 0.05, 0.80);
+        return sea + Math.min(rise, Math.max(1.0, cfg.coastalMergeHeight() * 0.42));
     }
 
     private static int findRoot(int start, int[] downstream, int[] root) {
@@ -380,7 +368,6 @@ public final class WatershedEngine {
     }
 
     private record Point(double x,double z) {}
-
     private record Projection(double distance, double t, double signedDistance) {}
 
     private record Tile(int ox, int oz, int spacing, int n, double[] h, double[] filled,
@@ -398,8 +385,6 @@ public final class WatershedEngine {
             int nearestZ = tz < 0.5 ? iz : iz + 1;
             long basinId = basin[nearestZ * n + nearestX];
 
-            // On teste les segments associés aux quatre coins de la cellule et on reprojette
-            // le bloc exact dessus. Pas d'interpolation entre deux affluents différents.
             int[] ids = { nearestSegment[a], nearestSegment[b], nearestSegment[c], nearestSegment[d] };
             int bestId = -1;
             Projection best = null;

@@ -1,9 +1,11 @@
+import org.gradle.api.attributes.java.TargetJvmVersion
+
 plugins {
     java
 }
 
 group = "fr.antho"
-version = "1.8.0"
+version = "1.9.0"
 
 repositories {
     maven {
@@ -17,12 +19,22 @@ dependencies {
 }
 
 java {
+    // Paper 26.2 est compilé pour JVM 25 ; le compilateur doit donc être Java 25.
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+}
+
+// Le plugin reste émis en bytecode Java 21, mais Gradle doit accepter le classpath
+// Paper 26.2 (JVM 25) pendant la compilation. Sans cet attribut, la résolution échoue
+// avant même l'appel à javac.
+configurations.configureEach {
+    if (isCanBeResolved) {
+        attributes.attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(21) // Bytecode compatible avec Java 21+, Paper 26.2 tourne sur Java 25.
+    options.release.set(21)
 }
 
 tasks.jar {

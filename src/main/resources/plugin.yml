@@ -1,7 +1,7 @@
 name: RealisticWorldGenerator
-version: '1.8.0'
+version: '1.9.0'
 main: fr.antho.realisticworld.RealisticWorldPlugin
-description: "Générateur naturel réaliste : hydrologie côtière sécurisée, rivières v6, structures vanilla alignées et biomes ouverts plus vivants."
+description: "Générateur naturel réaliste : hydrologie continue, rivières/lacs organiques, grottes vanilla+, biomes 26.2 et structures vanilla alignées."
 author: Antho
 api-version: '26.2'
 load: STARTUP

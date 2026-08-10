@@ -9,6 +9,11 @@ import fr.antho.realisticworld.soil.SoilEngine;
 import fr.antho.realisticworld.util.MathUtil;
 import org.bukkit.HeightMap;
 import org.bukkit.Material;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.Bisected;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.type.Slab;
+import org.bukkit.block.data.type.Stairs;
 import org.bukkit.generator.BiomeProvider;
 import org.bukkit.generator.ChunkGenerator;
 import org.bukkit.generator.WorldInfo;
@@ -17,19 +22,17 @@ import java.util.Random;
 
 /** Générateur naturel : relief, géologie 3D, hydrologie, sols, grottes et végétation. */
 public final class RealisticChunkGenerator extends ChunkGenerator {
+    private static final BlockFace[] HORIZONTAL={BlockFace.NORTH,BlockFace.EAST,BlockFace.SOUTH,BlockFace.WEST};
     private final ContextRegistry contexts;
     private final RealisticBiomeProvider biomeProvider;
     public RealisticChunkGenerator(ContextRegistry contexts){ this.contexts=contexts; this.biomeProvider=new RealisticBiomeProvider(contexts); }
 
     @Override public void generateNoise(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData data) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
-        int minY=data.getMinHeight(),maxY=data.getMaxHeight(),sea=ctx.terrain.seaLevel();
+        int minY=data.getMinHeight(),maxY=data.getMaxHeight();
         for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
             for(int x=0;x<16;x++) { int wx=chunkX*16+x;
                 WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(wx,wz);
-                double natural=column.naturalHeight();
-                RiverEngine.RiverSample river=column.river();
-                LakeEngine.LakeSample lake=column.lake();
                 int surface=MathUtil.clamp(column.groundY(),minY+1,maxY-2);
                 var geo=ctx.geology.sample(wx,wz);
 
@@ -63,14 +66,14 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                 for(int depth=1;depth<=p.depth()&&surface-depth>minY;depth++) {
                     data.setBlock(x,surface-depth,z,depth>=Math.max(3,p.depth()-1)?p.deep():p.sub());
                 }
-                if(p.snowCap()&&surface+1<maxY&&!river.isRiver()&&!lake.isLake()) data.setBlock(x,surface+1,z,Material.SNOW);
+                if(p.snowCap()&&surface+1<maxY&&!column.hasWater()) data.setBlock(x,surface+1,z,Material.SNOW);
             }
         }
         ctx.vegetation.render(data,chunkX,chunkZ);
         ctx.naturalFeatures.render(data,chunkX,chunkZ);
     }
 
-    /** Surcouche caves vanilla+ : les carvers vanilla passent d'abord, puis RWG ajoute seulement quelques connecteurs/salles rares. */
+    /** Carvers vanilla d'abord, puis petite surcouche RWG et détail des surfaces exposées. */
     @Override public void generateCaves(WorldInfo worldInfo, Random random, int chunkX, int chunkZ, ChunkData data) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         if(!ctx.caves.enabled()) return;
@@ -83,30 +86,101 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                 int top=Math.min(maxY,(int)Math.floor(surface)-ctx.config.caves().surfaceBuffer());
                 for(int y=minY;y<=top;y++) {
                     Material current=data.getType(x,y,z);
-                    if(current==Material.AIR||current==Material.WATER||current==Material.BEDROCK) continue;
+                    if(current.isAir()||current==Material.WATER||current==Material.BEDROCK) continue;
                     if(ctx.caves.shouldCarve(geo,wx,y,wz,surface)) {
                         data.setBlock(x,y,z,ctx.caves.isDeepAquifer(wx,y,wz,surface) ? Material.WATER : Material.AIR);
                     }
                 }
             }
         }
+        detailCaveSurfaces(ctx,data,chunkX,chunkZ,minY,maxY);
+    }
+
+    private static void detailCaveSurfaces(GenerationContext ctx,ChunkData data,int chunkX,int chunkZ,int minY,int maxY) {
+        for(int z=0;z<16;z++) { int wz=chunkZ*16+z;
+            for(int x=0;x<16;x++) { int wx=chunkX*16+x;
+                double surface=ctx.waterColumns.sample(wx,wz).groundHeight();
+                int top=Math.min(maxY,(int)Math.floor(surface)-ctx.config.caves().surfaceBuffer());
+                var geo=ctx.geology.sample(wx,wz);
+                for(int y=minY+1;y<top;y++) {
+                    Material current=data.getType(x,y,z);
+                    if(!isCaveRock(current)) continue;
+                    boolean airAbove=data.getType(x,y+1,z).isAir();
+                    boolean airBelow=data.getType(x,y-1,z).isAir();
+                    if(!airAbove&&!airBelow) continue;
+
+                    var detail=ctx.caves.detailSample(wx,y,wz);
+                    Material geological=ctx.geology.rockAt(geo,wx,y,wz);
+                    if(detail.rockStep()) {
+                        BlockData shaped=detail.slab()
+                                ? slabData(geological,airAbove)
+                                : stairData(geological,airAbove,detail.facingIndex());
+                        data.setBlock(x,y,z,shaped);
+                        continue;
+                    }
+
+                    if(detail.naturalDecoration()&&airAbove&&y+1<top) {
+                        Material target=data.getType(x,y+1,z);
+                        if(target.isAir()) {
+                            Material decoration=switch(geo.type()) {
+                                case LIMESTONE -> Material.POINTED_DRIPSTONE;
+                                case VOLCANIC -> Material.TUFF;
+                                default -> y<0?Material.MOSS_CARPET:Material.GRAVEL;
+                            };
+                            if(decoration==Material.TUFF||decoration==Material.GRAVEL) data.setBlock(x,y,z,decoration);
+                            else data.setBlock(x,y+1,z,decoration);
+                        }
+                    } else if(detail.naturalDecoration()&&airBelow&&data.getType(x,y-1,z).isAir()) {
+                        if(y>0) data.setBlock(x,y-1,z,Material.HANGING_ROOTS);
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean isCaveRock(Material m) {
+        return m==Material.STONE||m==Material.GRANITE||m==Material.DIORITE||m==Material.ANDESITE
+                ||m==Material.TUFF||m==Material.DEEPSLATE||m==Material.CALCITE;
+    }
+
+    private static BlockData slabData(Material rock,boolean floor) {
+        Material material=switch(rock) {
+            case GRANITE -> Material.GRANITE_SLAB;
+            case DIORITE -> Material.DIORITE_SLAB;
+            case ANDESITE -> Material.ANDESITE_SLAB;
+            case TUFF -> Material.TUFF_SLAB;
+            case DEEPSLATE -> Material.COBBLED_DEEPSLATE_SLAB;
+            default -> Material.STONE_SLAB;
+        };
+        Slab slab=(Slab)material.createBlockData();
+        slab.setType(floor?Slab.Type.BOTTOM:Slab.Type.TOP);
+        return slab;
+    }
+
+    private static BlockData stairData(Material rock,boolean floor,int facing) {
+        Material material=switch(rock) {
+            case GRANITE -> Material.GRANITE_STAIRS;
+            case DIORITE -> Material.DIORITE_STAIRS;
+            case ANDESITE -> Material.ANDESITE_STAIRS;
+            case TUFF -> Material.TUFF_STAIRS;
+            case DEEPSLATE -> Material.COBBLED_DEEPSLATE_STAIRS;
+            default -> Material.STONE_STAIRS;
+        };
+        Stairs stairs=(Stairs)material.createBlockData();
+        stairs.setHalf(floor?Bisected.Half.BOTTOM:Bisected.Half.TOP);
+        stairs.setFacing(HORIZONTAL[Math.floorMod(facing,HORIZONTAL.length)]);
+        return stairs;
     }
 
     /**
-     * Heightmap de référence utilisée par le pipeline vanilla (structures, locate, etc.).
-     * Elle doit impérativement suivre le relief réellement produit par generateNoise().
-     *
-     * L'ancienne implémentation utilisait baseHeightRaw(), donc AVANT l'érosion. Une
-     * structure pouvait être calculée plusieurs blocs au-dessus ou au-dessous du sol final.
-     * WaterColumnEngine réutilise exactement la même colonne que generateNoise() : hauteur
-     * érodée, incision locale, niveau marin et eau continentale. Son cache par colonne évite
-     * de recalculer l'hydrologie lors des nombreux appels de worldgen et de /locate.
+     * Heightmap de la passe noise. Paper 26.2 attend le Y du plus haut bloc correspondant,
+     * pas le premier bloc d'air : aucun +1 n'est appliqué ici.
      */
     @Override public int getBaseHeight(WorldInfo worldInfo, Random random, int x, int z, HeightMap heightMap) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(x,z);
-        int groundTop=MathUtil.clamp(column.groundY()+1,worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
-        int worldTop=MathUtil.clamp(column.worldSurfaceY()+1,worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
+        int groundTop=MathUtil.clamp(column.groundY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
+        int worldTop=MathUtil.clamp(column.worldSurfaceY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
         return switch(heightMap) {
             case OCEAN_FLOOR, OCEAN_FLOOR_WG -> groundTop;
             case WORLD_SURFACE, WORLD_SURFACE_WG, MOTION_BLOCKING, MOTION_BLOCKING_NO_LEAVES -> worldTop;
@@ -119,10 +193,6 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
     @Override public boolean shouldGenerateCaves(WorldInfo worldInfo,Random random,int chunkX,int chunkZ){
         GenerationContext ctx=contexts.forWorld(worldInfo);
         if(!ctx.config.compatibility().vanillaCaves()) return false;
-        // Les aquifères/carvers vanilla sont calibrés sur le noise generator vanilla. Sous un
-        // océan entièrement custom ils peuvent ouvrir de gigantesques poches d'air juste sous
-        // la mer, laissant des plafonds/dalles d'eau suspendus. On conserve le vanilla sur terre
-        // et on le coupe uniquement dans les chunks très majoritairement océaniques.
         if(ctx.config.caves().protectOceanCarvers()) {
             double landRatio=ctx.waterColumns.landRatioForCaves(chunkX,chunkZ);
             if(landRatio<=ctx.config.caves().oceanCarverMaxLandRatio()) return false;
