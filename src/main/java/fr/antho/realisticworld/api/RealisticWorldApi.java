@@ -11,7 +11,7 @@ import org.bukkit.generator.WorldInfo;
 
 /**
  * API lecture seule prévue pour les futurs addons (structures, routes, villes...).
- * Elle n'altère jamais le terrain et partage exactement les mêmes samplers que le générateur.
+ * Elle n'altère jamais le terrain et partage exactement la même colonne que le générateur.
  */
 public final class RealisticWorldApi {
     private final ContextRegistry contexts;
@@ -30,10 +30,12 @@ public final class RealisticWorldApi {
         double mountain=c.terrain.mountainInfluence(x,z), valley=c.terrain.valleyInfluence(x,z);
         LandscapeRegionSystem.LandscapeType landscape=c.landscape.classify(x,z,elevation,c.terrain.seaLevel(),
                 climate.continentalness(),mountain,valley);
-        return new NaturalSample(x,z,surface,slope,mountain,valley,climate,geology,landscape,river,lake);
+        return new NaturalSample(x,z,surface,column.waterSurface(),column.waterTop(),column.hasWater(),
+                column.oceanColumn(),slope,mountain,valley,climate,geology,landscape,river,lake);
     }
 
-    public record NaturalSample(int x,int z,double surfaceHeight,double slope,double mountainInfluence,
+    public record NaturalSample(int x,int z,double surfaceHeight,double waterSurface,int waterTop,
+                                boolean hasWater,boolean oceanColumn,double slope,double mountainInfluence,
                                 double valleyInfluence, ClimateEngine.ClimateSample climate,
                                 GeologyMap.GeologySample geology, LandscapeRegionSystem.LandscapeType landscape,
                                 RiverEngine.RiverSample river, LakeEngine.LakeSample lake) {}
