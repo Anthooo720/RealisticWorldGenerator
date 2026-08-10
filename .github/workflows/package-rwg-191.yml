@@ -3,6 +3,8 @@ name: Package RWG 1.9.1
 on:
   push:
     branches: [rwg-package-1.9.1]
+  pull_request:
+    branches: [main]
 
 jobs:
   package:
