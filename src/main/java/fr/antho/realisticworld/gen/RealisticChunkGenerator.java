@@ -66,8 +66,6 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                 for(int depth=1;depth<=p.depth()&&surface-depth>minY;depth++) {
                     data.setBlock(x,surface-depth,z,depth>=Math.max(3,p.depth()-1)?p.deep():p.sub());
                 }
-                // Une colonne humide appartient à WaterColumnEngine : le surface pass ne doit
-                // jamais remplacer son premier bloc d'eau par de la neige.
                 if(p.snowCap()&&surface+1<maxY&&!column.hasWater()) data.setBlock(x,surface+1,z,Material.SNOW);
             }
         }
@@ -129,13 +127,10 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
                                 case VOLCANIC -> Material.TUFF;
                                 default -> y<0?Material.MOSS_CARPET:Material.GRAVEL;
                             };
-                            // Les blocs pleins servent de petits dépôts sur le sol, les éléments
-                            // fins occupent l'air au-dessus sans remplir la cavité.
                             if(decoration==Material.TUFF||decoration==Material.GRAVEL) data.setBlock(x,y,z,decoration);
                             else data.setBlock(x,y+1,z,decoration);
                         }
                     } else if(detail.naturalDecoration()&&airBelow&&data.getType(x,y-1,z).isAir()) {
-                        // Racines pendantes rares sous les plafonds non profonds.
                         if(y>0) data.setBlock(x,y-1,z,Material.HANGING_ROOTS);
                     }
                 }
@@ -177,12 +172,15 @@ public final class RealisticChunkGenerator extends ChunkGenerator {
         return stairs;
     }
 
-    /** Heightmap unique du terrain réellement généré, utilisée notamment par les structures vanilla. */
+    /**
+     * Heightmap de la passe noise. Paper 26.2 attend le Y du plus haut bloc correspondant,
+     * pas le premier bloc d'air : aucun +1 n'est appliqué ici.
+     */
     @Override public int getBaseHeight(WorldInfo worldInfo, Random random, int x, int z, HeightMap heightMap) {
         GenerationContext ctx=contexts.forWorld(worldInfo);
         WaterColumnEngine.ColumnSample column=ctx.waterColumns.sample(x,z);
-        int groundTop=MathUtil.clamp(column.groundY()+1,worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
-        int worldTop=MathUtil.clamp(column.worldSurfaceY()+1,worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
+        int groundTop=MathUtil.clamp(column.groundY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
+        int worldTop=MathUtil.clamp(column.worldSurfaceY(),worldInfo.getMinHeight(),worldInfo.getMaxHeight()-1);
         return switch(heightMap) {
             case OCEAN_FLOOR, OCEAN_FLOOR_WG -> groundTop;
             case WORLD_SURFACE, WORLD_SURFACE_WG, MOTION_BLOCKING, MOTION_BLOCKING_NO_LEAVES -> worldTop;
